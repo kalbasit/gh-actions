@@ -1,0 +1,53 @@
+{
+  // Renovate configuration for kalbasit/gh-actions.
+  //
+  // Why JSON5: comments. The trust-list and auto-merge rationale live next to the
+  // rules so future maintainers don't need an out-of-band doc.
+  //
+  // Spec: openspec/specs/renovate-config/spec.md (after archival).
+
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+
+  extends: ["config:recommended"],
+
+  // This repo only consumes GitHub Actions today. If a `package.json` or `flake.lock`
+  // lands later, append its manager to this list — that's the entire opt-in.
+  enabledManagers: ["github-actions"],
+
+  // Use GitHub-native auto-merge so branch protection (required status checks, no
+  // review requirement) is the actual gate. Renovate just sets the auto-merge flag
+  // on the PR; GitHub merges it when checks pass.
+  platformAutomerge: true,
+
+  packageRules: [
+    {
+      // Trusted-namespace allowlist for digest auto-merge.
+      //
+      // Rationale: SHA-pinned actions only get the security benefit of pinning if
+      // the SHAs stay current. Auto-merging digest bumps on green CI is the whole
+      // point. The allowlist limits the blast radius to vendors we already trust;
+      // adding a new namespace requires a deliberate edit here.
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["digest", "pinDigest"],
+      matchPackageNames: [
+        "/^actions//",
+        "/^cachix//",
+        "/^codecov//",
+        "/^docker//",
+        "/^dorny//",
+        "/^stefanzweifel//",
+        "/^DeterminateSystems//",
+      ],
+      groupName: "github actions digests",
+      schedule: ["before 6am on Monday"],
+      automerge: true,
+    },
+    {
+      // Major-version bumps (e.g. v6 -> v7) always require human review regardless
+      // of namespace: they imply breaking changes worth reading the changelog for.
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["major"],
+      automerge: false,
+    },
+  ],
+}

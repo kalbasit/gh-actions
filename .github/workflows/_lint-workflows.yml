@@ -1,0 +1,32 @@
+name: Lint workflows
+
+# Lints every workflow under .github/workflows/ with actionlint. Wired to
+# `pull_request` so it acts as the CI gate Renovate's auto-merge depends on: when
+# Renovate opens a digest-bump PR, this workflow runs and either greenlights the
+# merge (auto-merge fires) or blocks it.
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - name: Run actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Use nixpkgs's actionlint pinned to the channel install-nix-action set up.
+          # Glob is expanded by bash; pass each workflow file explicitly so actionlint
+          # can resolve workflow_call references via ./.github/workflows/*.yml.
+          nix run nixpkgs#actionlint -- .github/workflows/*.yml
