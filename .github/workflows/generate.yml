@@ -54,7 +54,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      # NOTE: persist-credentials is intentionally left at its default (true). The PAT
+      # supplied via `token:` is embedded into the git remote URL so the
+      # `stefanzweifel/git-auto-commit-action` step at the bottom of this job can push
+      # back. Setting `persist-credentials: false` here would break the auto-commit.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           token: ${{ secrets.gha_pat_token }}
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
@@ -109,13 +113,13 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         with:
           filters: ${{ steps.filter_config.outputs.filters }}
 
-      - uses: cachix/install-nix-action@v31
-      - uses: cachix/cachix-action@v17
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
           name: ${{ inputs.cachix_cache }}
           authToken: ${{ secrets.cachix_auth_token }}

@@ -37,13 +37,23 @@ on:
         required: false
         type: string
         default: ""
-      images:
-        description: "OCI image base name (required when oci: true)."
+      dockerhub_image:
+        description: "Docker Hub image base name (e.g. user/foo). Empty disables Docker Hub."
         required: false
         type: string
         default: ""
       dockerhub_username:
-        description: "Docker Hub username (required when oci: true)."
+        description: "Docker Hub username. Pair with dockerhub_image to enable Docker Hub."
+        required: false
+        type: string
+        default: ""
+      ghcr_enabled:
+        description: "Push images to a GitHub Container Registry image."
+        required: false
+        type: boolean
+        default: true
+      ghcr_image:
+        description: "Optional override for the ghcr.io image base (default: ghcr.io/<repo>)."
         required: false
         type: string
         default: ""
@@ -73,7 +83,7 @@ on:
         description: "Codecov token (required when oci: true)"
         required: false
       dockerhub_token:
-        description: "Docker Hub registry credential (required when oci: true)"
+        description: "Docker Hub registry credential (required when Docker Hub is enabled)"
         required: false
 
 permissions:
@@ -87,7 +97,9 @@ jobs:
       go_deps: ${{ steps.filter.outputs.go_deps }}
       any_deps: ${{ steps.any.outputs.any_deps }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Build paths-filter config
         id: filter_config
@@ -109,7 +121,7 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         with:
           filters: ${{ steps.filter_config.outputs.filters }}
@@ -148,10 +160,12 @@ jobs:
         system: ${{ fromJson(inputs.systems) }}
     runs-on: ${{ matrix.system == 'aarch64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: DeterminateSystems/flake-checker-action@main
-      - uses: cachix/install-nix-action@v31
-      - uses: cachix/cachix-action@v17
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/flake-checker-action@ba1df9ab06e525ea302f2a56f5e182f33cfd14fa # main
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
           name: ${{ inputs.cachix_cache }}
           authToken: ${{ secrets.cachix_auth_token }}
@@ -163,10 +177,12 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       systems: ${{ inputs.systems }}
-      images: ${{ inputs.images }}
       cachix_cache: ${{ inputs.cachix_cache }}
       primary_package: ${{ inputs.primary_package }}
+      dockerhub_image: ${{ inputs.dockerhub_image }}
       dockerhub_username: ${{ inputs.dockerhub_username }}
+      ghcr_enabled: ${{ inputs.ghcr_enabled }}
+      ghcr_image: ${{ inputs.ghcr_image }}
       # push_oci is forced false on fork PRs regardless of the input value.
       push_oci: ${{ inputs.push_oci && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     secrets:

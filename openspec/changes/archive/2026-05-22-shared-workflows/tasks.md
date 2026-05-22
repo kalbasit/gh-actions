@@ -130,4 +130,4 @@
 - [ ] 10.1 Once all three consumers have been merged and green for at least one week, cut
       `v1.0.0` of this repo.
 - [ ] 10.2 Open follow-up PRs in each consumer bumping the pin from `@v0.1.0` to `@v1`.
-- [ ] 10.3 Archive this OpenSpec change.
+- [x] 10.3 Archive this OpenSpec change.
