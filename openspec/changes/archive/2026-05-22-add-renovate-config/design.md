@@ -62,14 +62,14 @@ only what we need.
     "groupName": "github actions digests",
     "schedule": ["before 6am on Monday"],
     "automerge": true,
-    "matchPackagePatterns": [
-      "^actions/",
-      "^cachix/",
-      "^codecov/",
-      "^docker/",
-      "^dorny/",
-      "^stefanzweifel/",
-      "^DeterminateSystems/"
+    "matchPackageNames": [
+      "/^actions\\//",
+      "/^cachix\\//",
+      "/^codecov\\//",
+      "/^docker\\//",
+      "/^dorny\\//",
+      "/^stefanzweifel\\//",
+      "/^DeterminateSystems\\//"
     ]
   },
   {
@@ -79,6 +79,10 @@ only what we need.
   }
 ]
 ```
+
+(`matchPackagePatterns` is deprecated in current Renovate; the implementation uses
+`matchPackageNames` with the regex-delimited form `/<pattern>/`, escaping the literal
+`/` inside the pattern with `\/`.)
 
 - One PR/week keeps noise low. Renovate still respects `prHourlyLimit` if multiple
   bumps queue up.
