@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: openspec/changes
+  # TEMPORARY: auto-trigger on PRs against this branch so we can verify the guard
+  # before any workflow file has landed on main. Revert before merging to main.
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
