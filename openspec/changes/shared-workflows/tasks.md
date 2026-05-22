@@ -87,9 +87,10 @@
 
 ## 7. Migrate `../swm`
 
-- [ ] 7.1 In `../swm`, replace `.github/workflows/ci.yml` with a thin caller of
-      `kalbasit/gh-actions/.github/workflows/ci.yml@v0.1.0` setting `cachix_cache: swm`,
-      `oci: false`, and `languages: '{"go":{"packages":["swm","swm-plugin-forge-github","swm-plugin-picker-fzf","swm-plugin-session-tmux","swm-plugin-vcs-git"]}}'`.
+- [x] 7.1 In `../swm`, replace `.github/workflows/ci.yml` with a thin caller of
+      `kalbasit/gh-actions/.github/workflows/ci.yml@feat-add-reusable-ci-workflows` setting
+      `cachix_cache: swm`, `oci: false`, and the five Go packages. — Committed as
+      `1963b74` on `user/wnasreddine/ci-jobs`. Will repin to `@v0.1.0` when tagged.
 - [ ] 7.2 Open the PR, confirm CI is green, confirm OpenSpec guard still fires (test by
       adding then removing an active change), confirm generate still works on a synthetic
       `go.mod` bump.
@@ -97,16 +98,15 @@
 
 ## 8. Migrate `../ncps`
 
-- [ ] 8.1 In `../ncps`, replace `.github/workflows/ci.yml` with a thin caller setting
+- [x] 8.1 In `../ncps`, replace `.github/workflows/ci.yml` with a thin caller setting
       `cachix_cache: ncps`, `oci: true`, `images: kalbasit/ncps`,
       `dockerhub_username: ${{ vars.DOCKERHUB_USERNAME }}`,
-      `languages: '{"go":{"packages":["ncps"]}}'`, and `extra_filters` adding the `database`
-      and `docs` rules.
-- [ ] 8.2 Keep `deploy-docs-pages` and the sqlc/`go generate` "Generate Database Code" step
-      as **sibling jobs in ncps's local `ci.yml`**, depending on the `filter` output exposed
-      by the reusable workflow (or run their own `dorny/paths-filter` inline if outputs
-      aren't re-exposed).
-- [ ] 8.3 Delete `../ncps/.github/workflows/build.yml` (replaced by reusable `build.yml`).
+      `languages: '{"go":{"packages":["ncps"]}}'`. — Committed as `115fca5`.
+- [x] 8.2 Keep `deploy-docs-pages` and the sqlc/`go generate` "Generate Database Code" step
+      as **sibling jobs in ncps's local `ci.yml`**. — Sibling jobs run their own
+      `dorny/paths-filter` since the reusable workflow doesn't (today) re-expose filter
+      outputs. A local final-gate job wraps both the shared workflow and the siblings.
+- [x] 8.3 Delete `../ncps/.github/workflows/build.yml` (replaced by reusable `build.yml`).
 - [ ] 8.4 Open the PR, confirm CI is green on both arches, confirm codecov upload still
       happens, confirm docs deploy still happens, confirm OCI images publish to Docker Hub
       and ghcr.io with the correct multi-arch manifest.
@@ -114,14 +114,13 @@
 
 ## 9. Migrate `../signal-api-receiver`
 
-- [ ] 9.1 In `../signal-api-receiver`, replace `.github/workflows/ci.yml` with a thin caller
+- [x] 9.1 In `../signal-api-receiver`, replace `.github/workflows/ci.yml` with a thin caller
       setting `cachix_cache: signal-api-receiver`, `oci: true`,
       `images: kalbasit/signal-api-receiver`,
       `dockerhub_username: ${{ vars.DOCKERHUB_USERNAME }}`,
-      `languages: '{"go":{"packages":["signal-api-receiver"]}}'`.
-- [ ] 9.2 Add `workflow_dispatch:` to the caller (signal-api-receiver doesn't have it today;
-      we're standardizing on having it per the SWM-precedence rule).
-- [ ] 9.3 Delete `../signal-api-receiver/.github/workflows/build.yml`.
+      `languages: '{"go":{"packages":["signal-api-receiver"]}}'`. — Committed as `552c1e4`.
+- [x] 9.2 Add `workflow_dispatch:` to the caller. — Done.
+- [x] 9.3 Delete `../signal-api-receiver/.github/workflows/build.yml`.
 - [ ] 9.4 Confirm codecov upload now uses `@v6` (was `@v5`) and that coverage still appears
       in the codecov UI.
 - [ ] 9.5 Open the PR, confirm CI is green on both arches, merge.
