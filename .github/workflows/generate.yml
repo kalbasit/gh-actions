@@ -37,8 +37,16 @@ on:
         description: "PAT used to push the auto-commit back to the consumer's branch"
         required: true
 
+# NOTE: GITHUB_TOKEN gets `contents: read`. The actual write (the auto-commit push) is
+# performed by `stefanzweifel/git-auto-commit-action` using the PAT supplied in the
+# `actions/checkout` step (`secrets.gha_pat_token`). Declaring `contents: write` here
+# would force every consumer's caller to also declare `contents: write` at the workflow
+# level — even consumers that never push from CI directly. The PAT path is what the
+# source repos (ncps, swm, signal-api-receiver) have always used, and it has the side
+# benefit that PAT-pushed commits re-trigger downstream workflows (GITHUB_TOKEN-pushed
+# commits do not).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   generate:
