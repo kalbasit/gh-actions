@@ -201,3 +201,31 @@ jobs:
 - OCI is the preferred term over "Docker" when referring to images.
 - Language support is additive: new languages plug in via the `languages` input
   without restructuring the workflow.
+
+## Renovate
+
+Every third-party action in this repo's workflows is pinned to a full commit SHA with a
+trailing `# vN.N.N` comment. [Renovate](https://github.com/apps/renovate) keeps both
+the SHA and the comment current, with policies declared in
+[`.github/renovate.json5`](.github/renovate.json5):
+
+- **Single weekly PR**: all GitHub-Action digest bumps land in one grouped PR
+  scheduled before 6am on Monday. Vulnerability alerts bypass the schedule.
+- **Auto-merge for trusted namespaces**: digest-only updates from
+  `actions/`, `cachix/`, `codecov/`, `docker/`, `dorny/`, `stefanzweifel/`, and
+  `DeterminateSystems/` auto-merge on green CI. Anything else opens a PR requiring
+  human review.
+- **Major bumps stay manual**: `v6 → v7` always requires a human merge regardless
+  of namespace.
+- **CI gate**: `.github/workflows/_lint-workflows.yml` runs `actionlint` on every PR
+  to `main` — this is what blocks auto-merge when an upgrade breaks something.
+
+The Renovate GitHub App must be installed on the repo for the config to take effect.
+Install it once at [github.com/apps/renovate](https://github.com/apps/renovate).
+
+**Branch protection note:** if/when `main` gets branch protection, mark
+`actionlint` (from `_lint-workflows.yml`) as a required status check and either set
+review requirements to zero or explicitly allow `renovate[bot]` to bypass them —
+otherwise `platformAutomerge` won't actually merge. Renovate PRs trigger
+`pull_request:` workflows regardless of protection state, so the lint check itself
+needs no extra wiring.
