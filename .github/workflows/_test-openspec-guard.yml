@@ -1,0 +1,29 @@
+name: _Test openspec-guard
+
+# Scratch workflow exercising the openspec-guard reusable workflow against this very
+# repo. Useful for sanity-checking changes to openspec-guard.yml before tagging a release.
+#
+# Expected behavior:
+#   - With this repo's `shared-workflows` change still active → the guard FAILS (success
+#     of this test means it correctly fails).
+#   - After archiving the change → the guard PASSES.
+#
+# Triggered manually; not wired to push/PR.
+
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "Path to scan (default: openspec/changes)"
+        required: false
+        type: string
+        default: openspec/changes
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/openspec-guard.yml
+    with:
+      path: ${{ inputs.path }}

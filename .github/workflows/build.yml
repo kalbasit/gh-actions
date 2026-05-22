@@ -1,0 +1,197 @@
+name: Build (OCI)
+
+# Reusable workflow that runs `nix flake check`, builds + uploads coverage to Codecov,
+# builds the OCI image, pushes it to Docker Hub + ghcr.io, and assembles a multi-arch
+# manifest. Called by ci.yml when `oci: true`. Source repos: ncps/build.yml and
+# signal-api-receiver/build.yml (parameterized and reconciled per the SWM-precedence rule).
+
+on:
+  workflow_call:
+    inputs:
+      systems:
+        description: "Nix systems to build for, as a JSON array (e.g. [\"x86_64-linux\",\"aarch64-linux\"])"
+        required: true
+        type: string
+      images:
+        description: "Base name for Docker image tags (e.g. kalbasit/foo)"
+        required: true
+        type: string
+      cachix_cache:
+        description: "Cachix cache name"
+        required: true
+        type: string
+      primary_package:
+        description: "Primary Nix package attr (used for .#<pkg>.coverage and nix/packages/<pkg>/version.txt)"
+        required: true
+        type: string
+      dockerhub_username:
+        description: "Docker Hub username"
+        required: true
+        type: string
+      push_oci:
+        description: "Whether to push images / build the multi-arch manifest"
+        required: true
+        type: boolean
+    secrets:
+      cachix_auth_token:
+        description: "Cachix push token"
+        required: true
+      codecov_token:
+        description: "Codecov token (skipped on fork PRs)"
+        required: true
+      dockerhub_token:
+        description: "Docker Hub registry credential"
+        required: true
+    outputs:
+      tags:
+        description: "Generated OCI image tags"
+        value: ${{ jobs.build.outputs.tags }}
+      labels:
+        description: "Generated OCI image labels"
+        value: ${{ jobs.build.outputs.labels }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        system: ${{ fromJson(inputs.systems) }}
+    runs-on: ${{ matrix.system == 'aarch64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    outputs:
+      labels: ${{ steps.meta.outputs.labels }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/flake-checker-action@main
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v17
+        with:
+          name: ${{ inputs.cachix_cache }}
+          authToken: ${{ secrets.cachix_auth_token }}
+
+      - name: Create version file
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          PRIMARY_PACKAGE: ${{ inputs.primary_package }}
+        run: |
+          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "$REF_NAME" > "nix/packages/${PRIMARY_PACKAGE}/version.txt"
+          fi
+
+      - name: Flake check
+        id: flake-check
+        run: nix flake check -L
+
+      - name: Build coverage
+        id: build-coverage
+        if: github.event.pull_request.head.repo.fork == false
+        env:
+          PRIMARY_PACKAGE: ${{ inputs.primary_package }}
+        run: nix build ".#${PRIMARY_PACKAGE}.coverage" -L
+
+      - name: Upload coverage reports to Codecov
+        if: github.event.pull_request.head.repo.fork == false
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.codecov_token }}
+          files: result-coverage
+
+      - name: Build the OCI image
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix build -L ".#packages.${{ matrix.system }}.docker"
+
+      - name: Build the OCI image pusher
+        if: inputs.push_oci
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix build -L ".#packages.${{ matrix.system }}.push-docker-image"
+
+      - name: Login to Docker Hub
+        if: inputs.push_oci
+        uses: docker/login-action@v4
+        with:
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.dockerhub_token }}
+
+      - name: Login to GitHub Container Registry
+        if: inputs.push_oci
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: OCI metadata
+        if: inputs.push_oci
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ${{ inputs.images }}
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{raw}}
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=semver,pattern=v{{major}}
+            type=sha
+
+      - name: Push the OCI image
+        if: inputs.push_oci
+        env:
+          DOCKER_IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./result/bin/push-docker-image
+
+  oci-manifest:
+    if: inputs.push_oci
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ inputs.dockerhub_username }}
+          password: ${{ secrets.dockerhub_token }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create a multi-architecture manifest
+        env:
+          DOCKER_IMAGE_TAGS: ${{ needs.build.outputs.tags }}
+          SYSTEMS: ${{ join(fromJson(inputs.systems), ',') }}
+        shell: bash
+        run: |
+          for tag in $DOCKER_IMAGE_TAGS; do
+            imgs=()
+            for system in $( echo "$SYSTEMS" | tr ',' ' ' ); do
+              imgs+=("$tag-$system")
+            done
+
+            docker manifest create "$tag" "${imgs[@]}"
+          done
+
+      - name: Push the multi-architecture manifest
+        env:
+          DOCKER_IMAGE_TAGS: ${{ needs.build.outputs.tags }}
+        shell: bash
+        run: |
+          for tag in $DOCKER_IMAGE_TAGS; do
+            docker manifest push "$tag"
+          done

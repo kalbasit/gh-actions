@@ -1,0 +1,224 @@
+name: CI
+
+# Top-level reusable orchestrator. Consumers wire their own pull_request / push /
+# workflow_dispatch triggers in a thin caller and invoke this via:
+#
+#   jobs:
+#     ci:
+#       uses: kalbasit/gh-actions/.github/workflows/ci.yml@<ref>
+#       with: { ... }
+#       secrets: { ... }
+#
+# See README.md for the full input/secret contract and consumer examples.
+
+on:
+  workflow_call:
+    inputs:
+      cachix_cache:
+        description: "Cachix cache name"
+        required: true
+        type: string
+      languages:
+        description: 'JSON object keyed by language, e.g. {"go":{"packages":["foo"]}}'
+        required: true
+        type: string
+      oci:
+        description: "Enable the OCI image build/push pipeline"
+        required: false
+        type: boolean
+        default: false
+      systems:
+        description: 'Nix systems to build/check, as a JSON array. Defaults to ["x86_64-linux","aarch64-linux"].'
+        required: false
+        type: string
+        default: '["x86_64-linux","aarch64-linux"]'
+      primary_package:
+        description: "Primary Nix package attr (required when oci: true). Used for coverage and version.txt."
+        required: false
+        type: string
+        default: ""
+      images:
+        description: "OCI image base name (required when oci: true)."
+        required: false
+        type: string
+        default: ""
+      dockerhub_username:
+        description: "Docker Hub username (required when oci: true)."
+        required: false
+        type: string
+        default: ""
+      push_oci:
+        description: "Push OCI images to registries. Forced false on fork PRs."
+        required: false
+        type: boolean
+        default: true
+      openspec_path:
+        description: "Path to the openspec changes directory."
+        required: false
+        type: string
+        default: openspec/changes
+      extra_filters:
+        description: 'Additional dorny/paths-filter rules merged with the built-in language filters, e.g. {"docs":["docs/**"]}.'
+        required: false
+        type: string
+        default: "{}"
+    secrets:
+      cachix_auth_token:
+        description: "Cachix push token"
+        required: true
+      gha_pat_token:
+        description: "PAT for git-auto-commit-action (required when generate runs)"
+        required: false
+      codecov_token:
+        description: "Codecov token (required when oci: true)"
+        required: false
+      dockerhub_token:
+        description: "Docker Hub registry credential (required when oci: true)"
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  filter:
+    runs-on: ubuntu-24.04
+    outputs:
+      go_deps: ${{ steps.filter.outputs.go_deps }}
+      any_deps: ${{ steps.any.outputs.any_deps }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build paths-filter config
+        id: filter_config
+        env:
+          EXTRA_FILTERS_JSON: ${{ inputs.extra_filters }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          builtin='{
+            "go_deps": ["go.mod", "go.sum"]
+          }'
+
+          merged="$(jq -n --argjson a "$builtin" --argjson b "$EXTRA_FILTERS_JSON" '$a * $b')"
+
+          {
+            echo 'filters<<EOF'
+            echo "$merged" | jq -r 'to_entries | map("\(.key):\n" + (.value | map("  - \"" + . + "\"") | join("\n"))) | join("\n")'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: ${{ steps.filter_config.outputs.filters }}
+
+      - name: Compute any_deps
+        id: any
+        env:
+          GO_DEPS: ${{ steps.filter.outputs.go_deps }}
+        run: |
+          if [[ "$GO_DEPS" == "true" ]]; then
+            echo "any_deps=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_deps=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  generate:
+    needs: filter
+    # Skip on fork PRs (no PAT to push back) and when no language dep paths changed.
+    if: |
+      needs.filter.outputs.any_deps == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false))
+    uses: ./.github/workflows/generate.yml
+    with:
+      cachix_cache: ${{ inputs.cachix_cache }}
+      languages: ${{ inputs.languages }}
+      extra_filters: ${{ inputs.extra_filters }}
+    secrets:
+      cachix_auth_token: ${{ secrets.cachix_auth_token }}
+      gha_pat_token: ${{ secrets.gha_pat_token }}
+
+  flake-check:
+    if: ${{ inputs.oci == false }}
+    strategy:
+      matrix:
+        system: ${{ fromJson(inputs.systems) }}
+    runs-on: ${{ matrix.system == 'aarch64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: DeterminateSystems/flake-checker-action@main
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v17
+        with:
+          name: ${{ inputs.cachix_cache }}
+          authToken: ${{ secrets.cachix_auth_token }}
+      - name: Flake check
+        run: nix flake check -L
+
+  build:
+    if: ${{ inputs.oci }}
+    uses: ./.github/workflows/build.yml
+    with:
+      systems: ${{ inputs.systems }}
+      images: ${{ inputs.images }}
+      cachix_cache: ${{ inputs.cachix_cache }}
+      primary_package: ${{ inputs.primary_package }}
+      dockerhub_username: ${{ inputs.dockerhub_username }}
+      # push_oci is forced false on fork PRs regardless of the input value.
+      push_oci: ${{ inputs.push_oci && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    secrets:
+      cachix_auth_token: ${{ secrets.cachix_auth_token }}
+      codecov_token: ${{ secrets.codecov_token }}
+      dockerhub_token: ${{ secrets.dockerhub_token }}
+
+  openspec-guard:
+    uses: ./.github/workflows/openspec-guard.yml
+    with:
+      path: ${{ inputs.openspec_path }}
+
+  ci:
+    runs-on: ubuntu-24.04
+    if: always()
+    needs:
+      - filter
+      - generate
+      - flake-check
+      - build
+      - openspec-guard
+    steps:
+      - name: Check Workflow Status
+        env:
+          FILTER_RESULT: ${{ needs.filter.result }}
+          GENERATE_RESULT: ${{ needs.generate.result }}
+          FLAKE_CHECK_RESULT: ${{ needs.flake-check.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          OPENSPEC_GUARD_RESULT: ${{ needs.openspec-guard.result }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          declare -A results=(
+            ["filter"]="$FILTER_RESULT"
+            ["generate"]="$GENERATE_RESULT"
+            ["flake-check"]="$FLAKE_CHECK_RESULT"
+            ["build"]="$BUILD_RESULT"
+            ["openspec-guard"]="$OPENSPEC_GUARD_RESULT"
+          )
+
+          failed=0
+          for job in "${!results[@]}"; do
+            result="${results[$job]}"
+            if [[ "$result" == "failure" || "$result" == "cancelled" ]]; then
+              echo "::error::Job '$job' ended with result: $result"
+              failed=1
+            fi
+          done
+
+          if [[ "$failed" -ne 0 ]]; then
+            exit 1
+          fi
+
+          echo "All jobs passed"
