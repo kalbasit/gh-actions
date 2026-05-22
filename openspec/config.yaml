@@ -15,8 +15,6 @@ context: |
   Conventions:
     - Conventional Commits for commit messages (`chore:`, `feat:`, `fix:`, ...)
     - OCI is the preferred term over "Docker" when referring to images
-    - When source workflows disagree on how to do the same thing, the newer repo wins.
-      Current precedence: SWM > ncps > signal-api-receiver
     - Language-aware steps (e.g., vendor-hash generation) accept a structured `languages`
       JSON object so adding Python, Rust, Node, etc. later is additive
 
