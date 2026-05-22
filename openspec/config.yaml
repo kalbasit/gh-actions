@@ -1,20 +1,35 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  This repository hosts reusable GitHub Actions workflows that other repositories under
+  github.com/kalbasit (currently: ncps, swm, signal-api-receiver) consume via
+  `uses: kalbasit/gh-actions/.github/workflows/<name>.yml@<ref>`.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Tech stack:
+    - GitHub Actions (`workflow_call` reusable workflows; YAML)
+    - Nix flakes (consumers all build via `nix flake check` / `nix build`)
+    - Cachix as the binary cache
+    - Codecov for coverage uploads (OCI-publishing consumers only)
+    - Docker Hub + ghcr.io as OCI registries
+
+  Conventions:
+    - Conventional Commits for commit messages (`chore:`, `feat:`, `fix:`, ...)
+    - OCI is the preferred term over "Docker" when referring to images
+    - Language-aware steps (e.g., vendor-hash generation) accept a structured `languages`
+      JSON object so adding Python, Rust, Node, etc. later is additive
+
+  Active OpenSpec changes must be archived before merging — enforced by the
+  `openspec-guard` reusable workflow in this very repo.
+
+rules:
+  proposal:
+    - Keep proposals tight; if it grows past ~800 words, move detail to design.md
+    - The Capabilities section is the contract with the specs phase; list every spec file
+      the change will create or modify
+  tasks:
+    - Each task should be completable in one session
+    - Order tasks by dependency
+    - When a change touches sibling repos under `../`, include explicit per-repo tasks
+  specs:
+    - Every requirement MUST have at least one `#### Scenario:` block (exactly four hashtags)
+    - Use SHALL/MUST for normative requirements; avoid should/may

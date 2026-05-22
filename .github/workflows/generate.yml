@@ -1,0 +1,178 @@
+name: Generate
+
+# Reusable workflow that regenerates language-specific dependency hashes (Nix vendorHash
+# today; Python/Rust/... in the future) and auto-commits the result. Source repos:
+# this combines and generalizes the `generate` jobs from kalbasit/{ncps,swm,signal-api-receiver}.
+#
+# Design notes:
+#   - The `languages` input is a JSON-encoded object keyed by language (today: "go" only).
+#   - Skipped on fork PRs (no GHA_PAT_TOKEN access).
+#   - One auto-commit per run regardless of how many languages/packages changed.
+
+on:
+  workflow_call:
+    inputs:
+      cachix_cache:
+        description: "Cachix cache name"
+        required: true
+        type: string
+      languages:
+        description: |
+          JSON object keyed by language, e.g. {"go":{"packages":["pkg-a","pkg-b"]}}.
+          Recognized keys (today): "go". Unknown keys fail the workflow.
+        required: true
+        type: string
+      extra_filters:
+        description: |
+          Additional dorny/paths-filter rules merged into the built-in language filters,
+          as a JSON object: {"filter_name":["path1","path2"]}.
+        required: false
+        type: string
+        default: "{}"
+    secrets:
+      cachix_auth_token:
+        description: "Cachix push token"
+        required: true
+      gha_pat_token:
+        description: "PAT used to push the auto-commit back to the consumer's branch"
+        required: true
+
+# NOTE: GITHUB_TOKEN gets `contents: read`. The actual write (the auto-commit push) is
+# performed by `stefanzweifel/git-auto-commit-action` using the PAT supplied in the
+# `actions/checkout` step (`secrets.gha_pat_token`). Declaring `contents: write` here
+# would force every consumer's caller to also declare `contents: write` at the workflow
+# level — even consumers that never push from CI directly. The PAT path is what the
+# source repos (ncps, swm, signal-api-receiver) have always used, and it has the side
+# benefit that PAT-pushed commits re-trigger downstream workflows (GITHUB_TOKEN-pushed
+# commits do not).
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    # Skip on fork PRs: we have no PAT to push back to the fork's branch.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false)
+    runs-on: ubuntu-24.04
+    steps:
+      # NOTE: persist-credentials is intentionally left at its default (true). The PAT
+      # supplied via `token:` is embedded into the git remote URL so the
+      # `stefanzweifel/git-auto-commit-action` step at the bottom of this job can push
+      # back. Setting `persist-credentials: false` here would break the auto-commit.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          token: ${{ secrets.gha_pat_token }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+      - name: Validate languages input
+        env:
+          LANGUAGES_JSON: ${{ inputs.languages }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          # Recognized language keys. Add new ones here when adding language modules below.
+          known=(go)
+
+          mapfile -t keys < <(echo "$LANGUAGES_JSON" | jq -r 'keys[]')
+
+          for key in "${keys[@]}"; do
+            found=false
+            for k in "${known[@]}"; do
+              if [[ "$key" == "$k" ]]; then
+                found=true
+                break
+              fi
+            done
+            if [[ "$found" != "true" ]]; then
+              echo "::error::Unknown language: $key"
+              exit 1
+            fi
+          done
+
+      - name: Build paths-filter config
+        id: filter_config
+        env:
+          EXTRA_FILTERS_JSON: ${{ inputs.extra_filters }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          # Built-in language filters. Keep keys aligned with the language modules below
+          # (each `<lang>_deps` is read by the matching `if:` on its step).
+          builtin='{
+            "go_deps": ["go.mod", "go.sum"]
+          }'
+
+          merged="$(jq -n --argjson a "$builtin" --argjson b "$EXTRA_FILTERS_JSON" '$a * $b')"
+
+          # Render as the YAML-ish multiline format dorny/paths-filter expects.
+          {
+            echo 'filters<<EOF'
+            echo "$merged" | jq -r 'to_entries | map("\(.key):\n" + (.value | map("  - \"" + . + "\"") | join("\n"))) | join("\n")'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
+        id: filter
+        with:
+          filters: ${{ steps.filter_config.outputs.filters }}
+
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ${{ inputs.cachix_cache }}
+          authToken: ${{ secrets.cachix_auth_token }}
+
+      # ---- Language module: Go ----------------------------------------------------------
+      - name: Update Go vendor hashes
+        if: fromJson(inputs.languages).go != null && steps.filter.outputs.go_deps == 'true'
+        env:
+          GO_PACKAGES_JSON: ${{ toJson(fromJson(inputs.languages).go.packages) }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          go mod tidy
+
+          mapfile -t packages < <(echo "$GO_PACKAGES_JSON" | jq -r '.[]')
+
+          for pkg in "${packages[@]}"; do
+            set +e
+            nix build --print-build-logs ".#${pkg}.goModules" 2> /tmp/log
+            ret=$?
+            set -e
+
+            if [[ "$ret" -eq 0 ]]; then
+              # Verify by rebuilding — catches hashes that happen to match a cached store path
+              # but would not match a fresh build.
+              set +e
+              nix build --print-build-logs ".#${pkg}.goModules" --rebuild 2> /tmp/log
+              ret=$?
+              set -e
+            fi
+
+            if [[ "$ret" -eq 0 ]]; then
+              echo "::notice::Hash is up to date for $pkg"
+              continue
+            fi
+
+            hash="$(grep 'got:' /tmp/log | awk '{print $2}')"
+            echo "hash=$hash for $pkg"
+
+            if [[ -z "$hash" ]]; then
+              cat /tmp/log
+              echo "::error::hash is empty for $pkg"
+              exit 1
+            fi
+
+            sed -e "s#vendorHash =.*\$#vendorHash = \"${hash}\";#g" -i "nix/packages/${pkg}/default.nix"
+          done
+      # ---- End language modules ---------------------------------------------------------
+
+      - name: Show diff
+        run: git diff
+
+      - uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "chore: update vendor hashes"

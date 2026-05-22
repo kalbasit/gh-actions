@@ -1,0 +1,53 @@
+name: OpenSpec Guard
+
+# Reusable workflow that fails CI when any active (non-archive) OpenSpec change exists
+# under the consumer's openspec changes directory. Sourced from the SWM repo's CI.
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: "Path to the openspec changes directory (default: openspec/changes)"
+        required: false
+        type: string
+        default: openspec/changes
+
+permissions:
+  contents: read
+
+jobs:
+  openspec-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: Check for active OpenSpec changes
+        env:
+          OPENSPEC_PATH: ${{ inputs.path }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          if [[ ! -d "$OPENSPEC_PATH" ]]; then
+            echo "::notice::No OpenSpec changes directory at $OPENSPEC_PATH — nothing to guard"
+            exit 0
+          fi
+
+          active="$(find "$OPENSPEC_PATH" -maxdepth 1 -mindepth 1 -type d ! -name archive)"
+
+          if [[ -n "$active" ]]; then
+            {
+              echo "## Active OpenSpec changes detected"
+              echo ""
+              echo "Archive these changes before merging:"
+              echo ""
+              while IFS= read -r dir; do
+                echo "- \`${dir}\`"
+              done <<< "$active"
+            } >>"$GITHUB_STEP_SUMMARY"
+            echo "::error::Active OpenSpec changes must be archived before merging — see job summary for details"
+            exit 1
+          fi
+
+          echo "No active OpenSpec changes"
