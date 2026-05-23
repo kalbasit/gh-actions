@@ -42,7 +42,7 @@
       `{attr: ncps, file: nix/packages/ncps/default.nix}` and
       `{attr: checks.x86_64-linux.ent-codegen-drift-check, file: nix/checks/flake-module.nix}`.
 - [x] 4.4 Delete the local `Update vendor hash for ncps` and `Update vendor hash for
-      ent-codegen-drift-check` steps from `generate-database`, plus the
+    ent-codegen-drift-check` steps from `generate-database`, plus the
       `stefanzweifel/git-auto-commit-action@v7` step gated on `go_deps`. Keep the
       `Regenerate Ent code`, `Format Code`, and Ent-gated auto-commit step — those
       aren't vendor hashes.
@@ -60,23 +60,20 @@
 
 ## 6. End-to-end verification (user-driven; gated on push)
 
-- [ ] 6.1 Push all four branches. Open / update PRs.
-- [ ] 6.2 Verify swm PR CI is green (no Go-module change → `generate` skips
+- [x] 6.1 Push all four branches. Open / update PRs.
+- [x] 6.2 Verify swm PR CI is green (no Go-module change → `generate` skips
       cleanly).
-- [ ] 6.3 Verify ncps PR CI is green:
-      - `shared / generate` handles `ncps.goModules` AND
-        `checks.x86_64-linux.ent-codegen-drift-check.goModules` if `go_deps` filter
-        matches (force a synthetic `go.mod` bump on a scratch branch to exercise
-        this if necessary).
-      - `generate-database` no longer pushes a vendor-hash commit.
-      - `openspec-guard` still fires (active `migrate-to-ent-and-atlas`); resolved
-        per ncps's own workflow.
-- [ ] 6.4 Verify signal-api-receiver PR CI is green.
+- [x] 6.3 Verify ncps PR CI is green: - `shared / generate` handles `ncps.goModules` AND
+      `checks.x86_64-linux.ent-codegen-drift-check.goModules` if `go_deps` filter
+      matches (force a synthetic `go.mod` bump on a scratch branch to exercise
+      this if necessary). - `generate-database` no longer pushes a vendor-hash commit. - `openspec-guard` still fires (active `migrate-to-ent-and-atlas`); resolved
+      per ncps's own workflow.
+- [x] 6.4 Verify signal-api-receiver PR CI is green.
 
 ## 7. Land + repin back to main
 
-- [ ] 7.1 Merge gh-actions PR.
-- [ ] 7.2 Repin each consumer's `ci.yml` / `releases.yml` from
+- [x] 7.1 Merge gh-actions PR.
+- [x] 7.2 Repin each consumer's `ci.yml` / `releases.yml` from
       `@feat-generate-configurable-targets` → `@main`. One commit per consumer.
-- [ ] 7.3 Merge each consumer PR.
-- [ ] 7.4 Archive this openspec change.
+- [x] 7.3 Merge each consumer PR.
+- [x] 7.4 Archive this openspec change.
