@@ -1,8 +1,4 @@
-# dependency-hash-generation Specification
-
-## Purpose
-TBD - created by archiving change shared-workflows. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Language-aware dependency hash regeneration
 
@@ -50,52 +46,13 @@ the attribute and the file explicitly.
 #### Scenario: Unknown language key
 
 - **WHEN** `languages` contains a key that is not a recognized language (e.g., `"goo"`)
-- **THEN** the workflow SHALL fail with `::error::Unknown language: goo` before running any
-  generator
+- **THEN** the workflow SHALL fail with `::error::Unknown language: goo` before running
+  any generator
 
 #### Scenario: Empty language config
 
 - **WHEN** `languages` is `{}` or no enabled language has matching filter changes
 - **THEN** the workflow SHALL exit success without committing
-
-### Requirement: Built-in paths-filter rules
-
-The workflow SHALL ship a `dorny/paths-filter` configuration that maps each known language
-to its dependency files; consumers SHALL NOT need to provide these. Initial mapping:
-
-| Language | Filter paths |
-| --- | --- |
-| `go` | `go.mod`, `go.sum` |
-| `python` (future) | `pyproject.toml`, `poetry.lock`, `requirements*.txt` |
-| `rust` (future) | `Cargo.toml`, `Cargo.lock` |
-
-#### Scenario: Filter does not match
-
-- **WHEN** the PR changes only files outside any enabled language's filter paths
-- **THEN** the workflow SHALL skip all generation steps and exit success
-
-### Requirement: Single commit per run
-
-The workflow SHALL produce **at most one** commit per invocation regardless of how many
-languages or packages are processed, using the literal message `chore: update vendor hashes`
-via `stefanzweifel/git-auto-commit-action@v7`.
-
-#### Scenario: Changes across multiple languages
-
-- **WHEN** both Go and Python (hypothetical) hashes change in the same run
-- **THEN** the workflow SHALL create one commit containing both diffs with message
-  `chore: update vendor hashes`
-
-### Requirement: Fork PRs are skipped
-
-The generate workflow SHALL be skipped on pull requests from forked repositories (no
-`GHA_PAT_TOKEN` is available to push).
-
-#### Scenario: Fork PR
-
-- **WHEN** invoked from a fork PR
-- **THEN** the workflow SHALL not run any generation steps; the final CI gate SHALL treat
-  the `skipped` result as success
 
 ### Requirement: Language extension contract
 

@@ -19,7 +19,11 @@ on:
         required: true
         type: string
       languages:
-        description: 'JSON object keyed by language, e.g. {"go":{"packages":["foo"]}}'
+        description: |
+          JSON object keyed by language. Each language's value declares an explicit
+          list of targets, where each target names a Nix attribute path and the file
+          holding its dependency hash. Example:
+            {"go":{"targets":[{"attr":"foo","file":"nix/packages/foo/default.nix"}]}}
         required: true
         type: string
       oci:
