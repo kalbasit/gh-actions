@@ -101,11 +101,18 @@ jobs:
           # keys `attr` and `file`, both non-empty strings. We let typos in `attr`
           # surface later as legible `nix build` errors — only shape is checked here.
           for key in "${keys[@]}"; do
-            count="$(echo "$LANGUAGES_JSON" | jq --arg k "$key" '.[$k].targets | if . == null then -1 else length end')"
-            if [[ "$count" == "-1" ]]; then
+            # Validate the type of `targets` explicitly so non-array values surface as
+            # our intended error message rather than a raw jq stack trace.
+            targets_type="$(echo "$LANGUAGES_JSON" | jq -r --arg k "$key" '.[$k].targets | if . == null then "null" else type end')"
+            if [[ "$targets_type" == "null" ]]; then
               echo "::error::languages.${key}.targets is missing"
               exit 1
             fi
+            if [[ "$targets_type" != "array" ]]; then
+              echo "::error::languages.${key}.targets must be a non-empty array (got $targets_type)"
+              exit 1
+            fi
+            count="$(echo "$LANGUAGES_JSON" | jq --arg k "$key" '.[$k].targets | length')"
             if [[ "$count" -eq 0 ]]; then
               echo "::error::languages.${key}.targets must be a non-empty array"
               exit 1
@@ -176,11 +183,10 @@ jobs:
 
           go mod tidy
 
-          # Iterate compact JSON objects so we can extract `attr` and `file` per entry.
-          while IFS= read -r entry; do
-            attr="$(echo "$entry" | jq -r '.attr')"
-            file="$(echo "$entry" | jq -r '.file')"
-
+          # Extract `attr` and `file` per entry with a single jq invocation per run
+          # (tab-delimited so file paths with spaces still parse). File paths with
+          # literal tabs are not supported.
+          while IFS=$'\t' read -r attr file; do
             set +e
             nix build --print-build-logs ".#${attr}.goModules" 2> /tmp/log
             ret=$?
@@ -209,8 +215,19 @@ jobs:
               exit 1
             fi
 
-            sed -e "s#vendorHash =.*\$#vendorHash = \"${hash}\";#g" -i "$file"
-          done < <(echo "$GO_TARGETS_JSON" | jq -c '.[]')
+            # Safety: refuse to sed-replace when the target file contains more than one
+            # `vendorHash` line. With explicit per-target files, two targets pointed at
+            # the same file would otherwise clobber each other on every run. Files with
+            # multiple Go modules need to be split, or this workflow needs a smarter
+            # block-scoped rewrite (out of scope today).
+            matches="$(grep -c '^[[:space:]]*vendorHash[[:space:]]*=' "$file" || true)"
+            if [[ "$matches" -ne 1 ]]; then
+              echo "::error::Expected exactly one vendorHash line in $file for target $attr, found $matches"
+              exit 1
+            fi
+
+            sed -e "s#vendorHash =.*\$#vendorHash = \"${hash}\";#" -i "$file"
+          done < <(printf '%s\n' "$GO_TARGETS_JSON" | jq -r '.[] | "\(.attr)\t\(.file)"')
       # ---- End language modules ---------------------------------------------------------
 
       - name: Show diff
