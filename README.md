@@ -37,7 +37,7 @@ jobs:
     with:
       cachix_cache: your-cache
       languages: |
-        {"go":{"packages":["your-app"]}}
+        {"go":{"targets":[{"attr":"your-app","file":"nix/packages/your-app/default.nix"}]}}
       oci: true
       primary_package: your-app
       dockerhub_image: yourhubuser/your-app
@@ -70,16 +70,28 @@ When `oci: true`, **at least one** of (Docker Hub via `dockerhub_image`+`dockerh
 
 ### `languages` shape
 
-A JSON-encoded object keyed by language identifier:
+A JSON-encoded object keyed by language identifier. Each language's value declares an
+explicit list of **targets**:
 
 ```json
 {
-  "go": {"packages": ["myapp", "myapp-plugin-x"]}
+  "go": {
+    "targets": [
+      {"attr": "myapp", "file": "nix/packages/myapp/default.nix"},
+      {"attr": "checks.x86_64-linux.myapp-drift-check", "file": "nix/checks/flake-module.nix"}
+    ]
+  }
 }
 ```
 
+- `attr` is the bare Nix attribute path. The language module appends a suffix
+  (`.goModules` for Go) when invoking `nix build`.
+- `file` is the path of the file containing the `vendorHash = "...";` line that the
+  workflow sed-replaces. There is no convention — both fields are explicit.
+
 Today only `go` is implemented. Future languages (`python`, `rust`, `node`) will plug
-in as additional keys with their own per-language config — no input-shape change.
+in as additional keys with the same `targets` shape — adding a language doesn't change
+the input contract.
 
 ### Registries
 
@@ -127,12 +139,12 @@ jobs:
       cachix_cache: swm
       oci: false
       languages: |
-        {"go":{"packages":[
-          "swm",
-          "swm-plugin-forge-github",
-          "swm-plugin-picker-fzf",
-          "swm-plugin-session-tmux",
-          "swm-plugin-vcs-git"
+        {"go":{"targets":[
+          {"attr":"swm",                     "file":"nix/packages/swm/default.nix"},
+          {"attr":"swm-plugin-forge-github", "file":"nix/packages/swm-plugin-forge-github/default.nix"},
+          {"attr":"swm-plugin-picker-fzf",   "file":"nix/packages/swm-plugin-picker-fzf/default.nix"},
+          {"attr":"swm-plugin-session-tmux", "file":"nix/packages/swm-plugin-session-tmux/default.nix"},
+          {"attr":"swm-plugin-vcs-git",      "file":"nix/packages/swm-plugin-vcs-git/default.nix"}
         ]}}
     secrets:
       cachix_auth_token: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -152,7 +164,10 @@ jobs:
       dockerhub_image: kalbasit/ncps
       dockerhub_username: ${{ vars.DOCKERHUB_USERNAME }}
       languages: |
-        {"go":{"packages":["ncps"]}}
+        {"go":{"targets":[
+          {"attr":"ncps",                                         "file":"nix/packages/ncps/default.nix"},
+          {"attr":"checks.x86_64-linux.ent-codegen-drift-check",  "file":"nix/checks/flake-module.nix"}
+        ]}}
       extra_filters: |
         {
           "database": ["db/migrations/**", "db/query.*.sql", "sqlc.yml", "pkg/database/**"],
@@ -181,7 +196,7 @@ jobs:
       dockerhub_image: kalbasit/signal-api-receiver
       dockerhub_username: ${{ vars.DOCKERHUB_USERNAME }}
       languages: |
-        {"go":{"packages":["signal-api-receiver"]}}
+        {"go":{"targets":[{"attr":"signal-api-receiver","file":"nix/packages/signal-api-receiver/default.nix"}]}}
     secrets:
       cachix_auth_token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       gha_pat_token: ${{ secrets.GHA_PAT_TOKEN }}

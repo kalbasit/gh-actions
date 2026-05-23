@@ -18,7 +18,13 @@ on:
         type: string
       languages:
         description: |
-          JSON object keyed by language, e.g. {"go":{"packages":["pkg-a","pkg-b"]}}.
+          JSON object keyed by language. Each language's config carries an explicit
+          list of targets, where each target names a Nix attribute path and the file
+          containing its `vendorHash = "...";` line. Example:
+            {"go":{"targets":[
+              {"attr":"foo","file":"nix/packages/foo/default.nix"},
+              {"attr":"checks.x86_64-linux.bar","file":"nix/checks/flake-module.nix"}
+            ]}}
           Recognized keys (today): "go". Unknown keys fail the workflow.
         required: true
         type: string
@@ -90,6 +96,41 @@ jobs:
             fi
           done
 
+          # Validate per-language targets shape. Every enabled language must have a
+          # non-empty `targets` array; each entry must be an object with exactly the
+          # keys `attr` and `file`, both non-empty strings. We let typos in `attr`
+          # surface later as legible `nix build` errors — only shape is checked here.
+          for key in "${keys[@]}"; do
+            count="$(echo "$LANGUAGES_JSON" | jq --arg k "$key" '.[$k].targets | if . == null then -1 else length end')"
+            if [[ "$count" == "-1" ]]; then
+              echo "::error::languages.${key}.targets is missing"
+              exit 1
+            fi
+            if [[ "$count" -eq 0 ]]; then
+              echo "::error::languages.${key}.targets must be a non-empty array"
+              exit 1
+            fi
+
+            # Reject entries that aren't {attr, file} objects with non-empty string values.
+            bad="$(echo "$LANGUAGES_JSON" | jq -r --arg k "$key" '
+              .[$k].targets
+              | to_entries[]
+              | select(
+                  (.value | type) != "object"
+                  or (.value | keys | sort) != ["attr","file"]
+                  or (.value.attr | type) != "string" or (.value.attr | length) == 0
+                  or (.value.file | type) != "string" or (.value.file | length) == 0
+                )
+              | "languages.\($k).targets[\(.key)]: " + (.value | tojson)
+            ')"
+            if [[ -n "$bad" ]]; then
+              while IFS= read -r line; do
+                echo "::error::$line is not a valid {attr,file} target"
+              done <<< "$bad"
+              exit 1
+            fi
+          done
+
       - name: Build paths-filter config
         id: filter_config
         env:
@@ -128,18 +169,20 @@ jobs:
       - name: Update Go vendor hashes
         if: fromJson(inputs.languages).go != null && steps.filter.outputs.go_deps == 'true'
         env:
-          GO_PACKAGES_JSON: ${{ toJson(fromJson(inputs.languages).go.packages) }}
+          GO_TARGETS_JSON: ${{ toJson(fromJson(inputs.languages).go.targets) }}
         run: |
           #!/usr/bin/env bash
           set -euo pipefail
 
           go mod tidy
 
-          mapfile -t packages < <(echo "$GO_PACKAGES_JSON" | jq -r '.[]')
+          # Iterate compact JSON objects so we can extract `attr` and `file` per entry.
+          while IFS= read -r entry; do
+            attr="$(echo "$entry" | jq -r '.attr')"
+            file="$(echo "$entry" | jq -r '.file')"
 
-          for pkg in "${packages[@]}"; do
             set +e
-            nix build --print-build-logs ".#${pkg}.goModules" 2> /tmp/log
+            nix build --print-build-logs ".#${attr}.goModules" 2> /tmp/log
             ret=$?
             set -e
 
@@ -147,27 +190,27 @@ jobs:
               # Verify by rebuilding — catches hashes that happen to match a cached store path
               # but would not match a fresh build.
               set +e
-              nix build --print-build-logs ".#${pkg}.goModules" --rebuild 2> /tmp/log
+              nix build --print-build-logs ".#${attr}.goModules" --rebuild 2> /tmp/log
               ret=$?
               set -e
             fi
 
             if [[ "$ret" -eq 0 ]]; then
-              echo "::notice::Hash is up to date for $pkg"
+              echo "::notice::Hash is up to date for $attr"
               continue
             fi
 
             hash="$(grep 'got:' /tmp/log | awk '{print $2}')"
-            echo "hash=$hash for $pkg"
+            echo "hash=$hash for $attr"
 
             if [[ -z "$hash" ]]; then
               cat /tmp/log
-              echo "::error::hash is empty for $pkg"
+              echo "::error::hash is empty for $attr"
               exit 1
             fi
 
-            sed -e "s#vendorHash =.*\$#vendorHash = \"${hash}\";#g" -i "nix/packages/${pkg}/default.nix"
-          done
+            sed -e "s#vendorHash =.*\$#vendorHash = \"${hash}\";#g" -i "$file"
+          done < <(echo "$GO_TARGETS_JSON" | jq -c '.[]')
       # ---- End language modules ---------------------------------------------------------
 
       - name: Show diff
