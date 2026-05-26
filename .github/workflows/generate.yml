@@ -181,7 +181,11 @@ jobs:
           #!/usr/bin/env bash
           set -euo pipefail
 
-          go mod tidy
+          # Skip if no root go.mod — multi-module repos (e.g. all modules in subdirs)
+          # rely on Renovate keeping each module's go.sum current.
+          if [[ -f go.mod ]]; then
+            go mod tidy
+          fi
 
           # Extract `attr` and `file` per entry with a single jq invocation per run
           # (tab-delimited so file paths with spaces still parse). File paths with
