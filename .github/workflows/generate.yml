@@ -149,7 +149,7 @@ jobs:
           # Built-in language filters. Keep keys aligned with the language modules below
           # (each `<lang>_deps` is read by the matching `if:` on its step).
           builtin='{
-            "go_deps": ["go.mod", "go.sum"]
+            "go_deps": ["**/go.mod", "**/go.sum"]
           }'
 
           merged="$(jq -n --argjson a "$builtin" --argjson b "$EXTRA_FILTERS_JSON" '$a * $b')"
