@@ -114,7 +114,7 @@ jobs:
           set -euo pipefail
 
           builtin='{
-            "go_deps": ["go.mod", "go.sum"]
+            "go_deps": ["**/go.mod", "**/go.sum"]
           }'
 
           merged="$(jq -n --argjson a "$builtin" --argjson b "$EXTRA_FILTERS_JSON" '$a * $b')"

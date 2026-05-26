@@ -149,7 +149,7 @@ jobs:
           # Built-in language filters. Keep keys aligned with the language modules below
           # (each `<lang>_deps` is read by the matching `if:` on its step).
           builtin='{
-            "go_deps": ["go.mod", "go.sum"]
+            "go_deps": ["**/go.mod", "**/go.sum"]
           }'
 
           merged="$(jq -n --argjson a "$builtin" --argjson b "$EXTRA_FILTERS_JSON" '$a * $b')"
@@ -181,7 +181,11 @@ jobs:
           #!/usr/bin/env bash
           set -euo pipefail
 
-          go mod tidy
+          # Skip if no root go.mod — multi-module repos (e.g. all modules in subdirs)
+          # rely on Renovate keeping each module's go.sum current.
+          if [[ -f go.mod ]]; then
+            go mod tidy
+          fi
 
           # Extract `attr` and `file` per entry with a single jq invocation per run
           # (tab-delimited so file paths with spaces still parse). File paths with
