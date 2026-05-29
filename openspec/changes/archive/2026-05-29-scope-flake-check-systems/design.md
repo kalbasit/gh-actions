@@ -23,17 +23,20 @@ is shared, so any change must default to current behavior.
 ## Decisions
 
 ### D1 — `test_systems` JSON-array input, default `"[]"` = all
-A JSON-array string mirrors the existing `systems` input. Empty array is the
-"run everywhere" sentinel (backward compatible). The gate on each test/coverage
-step is:
+A JSON-array string mirrors the existing `systems` input. Empty array (or empty
+string) is the "run everywhere" sentinel (backward compatible). The gate on each
+test/coverage step is:
 
-```
-inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system)
+```yaml
+inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system)
 ```
 
 `contains(array, item)` is a native GitHub Actions expression function, so no
-shell step is needed. For coverage/codecov, this ANDs with the existing
-non-fork condition.
+shell step is needed. The `inputs.test_systems == ''` guard handles a consumer
+passing `test_systems: ''`, which would otherwise reach `fromJson('')` and fail.
+(A leading `!inputs.test_systems` cannot be used here: a bare `if:` scalar
+starting with `!` is invalid YAML — `!` is a tag indicator.) For
+coverage/codecov, this ANDs with the existing non-fork condition.
 
 *Alternatives:* a boolean `skip_aarch64_tests` (arch-specific, inexpressive);
 defaulting to the first system (surprising for multi-system consumers). Rejected.

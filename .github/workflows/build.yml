@@ -21,10 +21,11 @@ on:
       test_systems:
         description: |
           Subset of `systems` (JSON array) on which to run the integration suite
-          (`nix flake check`) and coverage. Empty array (default) runs them on
-          every system. A non-empty list restricts the test/coverage steps to the
-          listed systems; the OCI image is still built for every system so the
-          multi-arch manifest stays complete. Example: ["x86_64-linux"].
+          (`nix flake check`) and coverage. The empty array (default) — or an empty
+          string — runs them on every system. A non-empty list restricts the
+          test/coverage steps to the listed systems; the OCI image is still built
+          for every system so the multi-arch manifest stays complete.
+          Example: ["x86_64-linux"].
         required: false
         type: string
         default: "[]"
@@ -147,18 +148,18 @@ jobs:
       # multi-arch manifest stays complete.
       - name: Flake check
         id: flake-check
-        if: inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system)
+        if: inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system)
         run: nix flake check -L
 
       - name: Build coverage
         id: build-coverage
-        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
+        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
         env:
           PRIMARY_PACKAGE: ${{ inputs.primary_package }}
         run: nix build ".#${PRIMARY_PACKAGE}.coverage" -L
 
       - name: Upload coverage reports to Codecov
-        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
+        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
         with:
           token: ${{ secrets.codecov_token }}

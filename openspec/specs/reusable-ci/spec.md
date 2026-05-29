@@ -44,8 +44,8 @@ a subset of `systems`; `"[]"` runs them on every system. The orchestrator SHALL 
 
 The `ci.yml` workflow SHALL accept a `test_systems` input: a JSON-array string, not required,
 defaulting to `"[]"`. It names the subset of `systems` on which `nix flake check` and coverage
-run; an empty array MUST be treated as "all systems". The workflow SHALL forward this value
-unchanged to `build.yml`.
+run; an empty array — or an empty string — MUST be treated as "all systems". The workflow
+SHALL forward this value unchanged to `build.yml`.
 
 #### Scenario: Default omitted
 
