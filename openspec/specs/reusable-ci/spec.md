@@ -9,7 +9,11 @@ TBD - created by archiving change shared-workflows. Update Purpose after archive
 The repository SHALL expose a reusable workflow at `.github/workflows/ci.yml` invokable
 cross-repo via `uses: kalbasit/gh-actions/.github/workflows/ci.yml@<ref>` that orchestrates
 the full CI pipeline (filter, generate, flake-check or build, openspec-guard, final gate)
-for any Nix-flake consumer.
+for any Nix-flake consumer. The workflow SHALL accept a `test_systems` input (JSON-array
+string, default `"[]"`) that scopes the integration suite (`nix flake check`) and coverage to
+a subset of `systems`; `"[]"` runs them on every system. The orchestrator SHALL forward
+`test_systems` to `build.yml` and SHALL apply the same scoping to its standalone
+`flake-check` job.
 
 #### Scenario: Consumer with Go and no OCI images
 
@@ -27,6 +31,32 @@ for any Nix-flake consumer.
   flake-check, coverage, codecov upload, OCI image build, push, manifest), `openspec-guard`,
   and final `ci`
 - **AND** SHALL NOT run a separate `flake-check` job (it lives inside the build matrix)
+
+#### Scenario: Consumer scopes the integration suite with `test_systems`
+
+- **WHEN** a consumer invokes the orchestrator with
+  `systems: '["x86_64-linux","aarch64-linux"]'` and `test_systems: '["x86_64-linux"]'`
+- **THEN** flake-check and coverage SHALL run only on the `x86_64-linux` leg (whether via the
+  `build` matrix when `oci: true` or the standalone `flake-check` job when `oci: false`)
+- **AND** when `oci: true`, the `aarch64-linux` leg SHALL still build its OCI image
+
+### Requirement: test_systems input
+
+The `ci.yml` workflow SHALL accept a `test_systems` input: a JSON-array string, not required,
+defaulting to `"[]"`. It names the subset of `systems` on which `nix flake check` and coverage
+run; an empty array MUST be treated as "all systems". The workflow SHALL forward this value
+unchanged to `build.yml`.
+
+#### Scenario: Default omitted
+
+- **WHEN** a consumer omits `test_systems`
+- **THEN** the workflow SHALL default it to `"[]"` and run flake-check + coverage on every
+  system in `systems`
+
+#### Scenario: Forwarded to build.yml
+
+- **WHEN** `oci: true` and a consumer sets `test_systems: '["x86_64-linux"]'`
+- **THEN** the orchestrator SHALL pass `test_systems: '["x86_64-linux"]'` to `build.yml`
 
 ### Requirement: Inputs
 
