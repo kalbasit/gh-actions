@@ -29,6 +29,15 @@ on:
         required: false
         type: string
         default: "[]"
+      run_flake_check:
+        description: |
+          Whether this workflow runs `nix flake check` + coverage inline. Default
+          true. Set false when the consumer fans the checks out into its own
+          parallel matrix (`nix build .#checks.<system>.<name>`) and runs coverage
+          itself; the OCI image build/push then proceeds without an inline check.
+        required: false
+        type: boolean
+        default: true
       cachix_cache:
         description: "Cachix cache name"
         required: true
@@ -142,24 +151,25 @@ jobs:
             echo "$REF_NAME" > "nix/packages/${PRIMARY_PACKAGE}/version.txt"
           fi
 
-      # Integration suite + coverage run only on the systems named in
-      # `test_systems` (empty array => every system). The OCI image build below
-      # is intentionally NOT gated: every arch still builds its image so the
-      # multi-arch manifest stays complete.
+      # Integration suite + coverage run only when `run_flake_check` is true AND
+      # the system is named in `test_systems` (empty array => every system). The
+      # OCI image build below is intentionally NOT gated: every arch still builds
+      # its image so the multi-arch manifest stays complete. A consumer that fans
+      # the checks out into its own matrix sets `run_flake_check: false`.
       - name: Flake check
         id: flake-check
-        if: inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system)
+        if: inputs.run_flake_check && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
         run: nix flake check -L
 
       - name: Build coverage
         id: build-coverage
-        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
+        if: inputs.run_flake_check && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
         env:
           PRIMARY_PACKAGE: ${{ inputs.primary_package }}
         run: nix build ".#${PRIMARY_PACKAGE}.coverage" -L
 
       - name: Upload coverage reports to Codecov
-        if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
+        if: inputs.run_flake_check && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
         uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
         with:
           token: ${{ secrets.codecov_token }}

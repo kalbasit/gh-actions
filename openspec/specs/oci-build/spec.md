@@ -9,11 +9,20 @@ TBD - created by archiving change shared-workflows. Update Purpose after archive
 The repository SHALL provide a reusable workflow at `.github/workflows/build.yml` that, for
 each system in `inputs.systems`, builds the OCI image via `nix build
 .#packages.<system>.docker`, and — when `push_oci` is true and the build is not from a fork
-PR — pushes the image to Docker Hub and ghcr.io. For each system that is in
-`inputs.test_systems` — or for every system when `test_systems` is the empty array `"[]"`
-(the default) or an empty string — the workflow SHALL additionally run `nix flake check -L`
-and build+upload coverage to Codecov (using `codecov-action@v6`). A follow-up `oci-manifest` job SHALL
+PR — pushes the image to Docker Hub and ghcr.io. When `inputs.run_flake_check` is true (the
+default), then for each system that is in `inputs.test_systems` — or for every system when
+`test_systems` is the empty array `"[]"` (the default) or an empty string — the workflow SHALL
+additionally run `nix flake check -L` and build+upload coverage to Codecov (using
+`codecov-action@v6`). When `run_flake_check` is false, the workflow SHALL skip the flake-check
+and coverage steps entirely and only build/push the image. A follow-up `oci-manifest` job SHALL
 assemble a multi-arch manifest from the per-system images and push it.
+
+#### Scenario: run_flake_check false skips the inline check
+
+- **WHEN** invoked with `run_flake_check: false`
+- **THEN** the workflow SHALL NOT run `nix flake check`, build coverage, or upload to Codecov
+- **AND** it SHALL still build (and, when pushing, push) the OCI image per system and assemble
+  the multi-arch manifest
 
 #### Scenario: PR from the owner with `push_oci: true`
 

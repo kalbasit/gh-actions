@@ -46,6 +46,15 @@ on:
         required: false
         type: string
         default: "[]"
+      run_flake_check:
+        description: |
+          Whether CI runs `nix flake check` + coverage inline (default true). Set
+          false when the consumer fans the checks out into its own parallel matrix
+          and runs coverage itself; gates both the standalone flake-check job and
+          the inline check inside the OCI build job.
+        required: false
+        type: boolean
+        default: true
       primary_package:
         description: "Primary Nix package attr (required when oci: true). Used for coverage and version.txt."
         required: false
@@ -168,7 +177,7 @@ jobs:
       gha_pat_token: ${{ secrets.gha_pat_token }}
 
   flake-check:
-    if: ${{ inputs.oci == false }}
+    if: ${{ inputs.oci == false && inputs.run_flake_check }}
     strategy:
       matrix:
         system: ${{ fromJson(inputs.systems) }}
@@ -193,6 +202,7 @@ jobs:
     with:
       systems: ${{ inputs.systems }}
       test_systems: ${{ inputs.test_systems }}
+      run_flake_check: ${{ inputs.run_flake_check }}
       cachix_cache: ${{ inputs.cachix_cache }}
       primary_package: ${{ inputs.primary_package }}
       dockerhub_image: ${{ inputs.dockerhub_image }}
