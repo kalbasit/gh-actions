@@ -36,6 +36,16 @@ on:
         required: false
         type: string
         default: '["x86_64-linux","aarch64-linux"]'
+      test_systems:
+        description: |
+          Subset of `systems` (JSON array) on which to run the integration suite
+          (`nix flake check`) and coverage. Empty array (default) runs them on
+          every system. Forwarded to build.yml and applied to the standalone
+          flake-check job; the OCI image is still built for every system.
+          Example: ["x86_64-linux"].
+        required: false
+        type: string
+        default: "[]"
       primary_package:
         description: "Primary Nix package attr (required when oci: true). Used for coverage and version.txt."
         required: false
@@ -174,6 +184,7 @@ jobs:
           name: ${{ inputs.cachix_cache }}
           authToken: ${{ secrets.cachix_auth_token }}
       - name: Flake check
+        if: inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system)
         run: nix flake check -L
 
   build:
@@ -181,6 +192,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       systems: ${{ inputs.systems }}
+      test_systems: ${{ inputs.test_systems }}
       cachix_cache: ${{ inputs.cachix_cache }}
       primary_package: ${{ inputs.primary_package }}
       dockerhub_image: ${{ inputs.dockerhub_image }}
