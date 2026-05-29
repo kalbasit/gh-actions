@@ -68,6 +68,8 @@ The `ci.yml` workflow SHALL accept the following inputs:
 | `languages` | string (JSON object) | yes | — | Per-language config; keys: `go`, future: `python`, `rust`, ... |
 | `oci` | boolean | no | `false` | Enable OCI image build/push |
 | `systems` | string (JSON array) | no | `["x86_64-linux","aarch64-linux"]` | Nix systems to build/check |
+| `test_systems` | string (JSON array) | no | `"[]"` | Subset of `systems` on which to run `nix flake check` + coverage; empty (or `""`) means all systems |
+| `run_flake_check` | boolean | no | `true` | When `true`, run `nix flake check` + coverage inline; when `false`, skip the standalone flake-check job and forward the value to `build.yml` (its inline check/coverage steps are skipped), for consumers that fan checks out themselves. OCI image build/push unaffected |
 | `images` | string | when `oci: true` | — | Image name base (e.g., `kalbasit/foo`) |
 | `dockerhub_username` | string | when `oci: true` | — | Docker Hub username |
 | `push_oci` | boolean | no | `true` | Whether to push images to registries (false for fork PRs) |

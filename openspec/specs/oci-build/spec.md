@@ -27,7 +27,8 @@ assemble a multi-arch manifest from the per-system images and push it.
 #### Scenario: PR from the owner with `push_oci: true`
 
 - **WHEN** invoked from a non-fork PR with `systems: '["x86_64-linux","aarch64-linux"]'`,
-  `images: "kalbasit/foo"`, `push_oci: true`, and `test_systems: '[]'` (default)
+  `images: "kalbasit/foo"`, `push_oci: true`, `run_flake_check: true`, and
+  `test_systems: '[]'` (default)
 - **THEN** the workflow SHALL run two matrix jobs (one per arch), each performing flake-check,
   coverage build, codecov upload, OCI image build, registry login, image push; SHALL then run
   `oci-manifest` to `docker manifest create` and `docker manifest push` a single multi-arch
@@ -44,7 +45,7 @@ assemble a multi-arch manifest from the per-system images and push it.
 
 #### Scenario: PR from a fork
 
-- **WHEN** invoked from a fork PR
+- **WHEN** invoked from a fork PR with `run_flake_check: true`
 - **THEN** the workflow SHALL still run flake-check (on the `test_systems` subset, or every
   arch when `test_systems` is `"[]"`) and the OCI image build (read-only steps); SHALL skip
   codecov upload, registry login, push, and the `oci-manifest` job
