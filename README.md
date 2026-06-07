@@ -10,9 +10,9 @@ Consumers (`ncps`, `swm`, `signal-api-receiver`) call these workflows via
 
 | File | Purpose |
 | --- | --- |
-| `.github/workflows/ci.yml` | Top-level orchestrator. Wires filter → generate → flake-check or OCI build → openspec-guard → final gate. |
+| `.github/workflows/ci.yml` | Top-level orchestrator. Wires filter → generate → flake checks (single/matrix) + optional coverage or OCI build → openspec-guard → final gate. |
 | `.github/workflows/generate.yml` | Language-aware dependency-hash regenerator. Updates Nix `vendorHash` (and future Python/Rust equivalents) and auto-commits. |
-| `.github/workflows/build.yml` | Per-arch flake-check + coverage + OCI image build/push + multi-arch manifest. Called by `ci.yml` when `oci: true`. |
+| `.github/workflows/build.yml` | Per-arch inline flake-check (`single` mode) + OCI image build/push + multi-arch manifest. Called by `ci.yml` when `oci: true`. |
 | `.github/workflows/openspec-guard.yml` | Fails CI when active (non-archived) OpenSpec changes exist under `openspec/changes/`. |
 
 ## Quick start
@@ -57,7 +57,10 @@ jobs:
 | `languages` | string (JSON object) | yes | — | Per-language config (see below) |
 | `oci` | boolean | no | `false` | Enable OCI image build/push |
 | `systems` | string (JSON array) | no | `["x86_64-linux","aarch64-linux"]` | Nix systems to build/check |
-| `primary_package` | string | when `oci: true` | — | Package attr for the coverage build (`.#<pkg>.coverage`) and version.txt path |
+| `test_systems` | string (JSON array) | no | `"[]"` | Subset of `systems` on which to run checks + coverage; empty (or `""`) means all systems |
+| `check_mode` | string (`single`/`matrix`/`none`) | no | `single` | How `nix flake check` runs: `single` = one monolithic check per system (good for quick repos); `matrix` = fan each `.#checks.<system>` attribute out into its own parallel job, scoped by `test_systems` (good for large projects); `none` = skip inline checks (OCI build/push unaffected) |
+| `coverage` | boolean | no | `false` | Run a fork-safe coverage job that builds `.#<primary_package>.coverage` and uploads to Codecov. Requires `primary_package` + `codecov_token` |
+| `primary_package` | string | when `oci: true` or `coverage: true` | — | Package attr for the coverage build (`.#<pkg>.coverage`) and version.txt path |
 | `dockerhub_image` | string | when pushing to Docker Hub | `""` | Docker Hub image base name (e.g., `yourhubuser/foo`). Empty disables Docker Hub. |
 | `dockerhub_username` | string | when pushing to Docker Hub | `""` | Docker Hub username. Must be set alongside `dockerhub_image`. |
 | `ghcr_enabled` | boolean | no | `true` | Push images to a GitHub Container Registry image. |
@@ -124,7 +127,7 @@ ghcr_image: ghcr.io/someorg/foo
 | --- | --- | --- |
 | `cachix_auth_token` | always | Cachix push token |
 | `gha_pat_token` | when `generate` runs | PAT used by `git-auto-commit-action` to push back vendor-hash updates |
-| `codecov_token` | when `oci: true` | Codecov upload token |
+| `codecov_token` | when `coverage: true` | Codecov upload token |
 | `dockerhub_token` | when Docker Hub is enabled | Docker Hub registry credential. ghcr.io uses the workflow's `GITHUB_TOKEN`. |
 
 ## Consumer examples
@@ -151,7 +154,12 @@ jobs:
       gha_pat_token: ${{ secrets.GHA_PAT_TOKEN }}
 ```
 
-### ncps (OCI + extra paths-filter for database/docs sibling jobs)
+### ncps (OCI + matrix checks + coverage + extra paths-filter for sibling jobs)
+
+`check_mode: matrix` fans each `.#checks.<system>` attribute out into its own parallel
+job (here scoped to `x86_64-linux` via `test_systems`), and `coverage: true` builds
+`.#ncps.coverage` and uploads it to Codecov — so the consumer no longer hand-rolls those
+jobs.
 
 ```yaml
 jobs:
@@ -163,6 +171,9 @@ jobs:
       primary_package: ncps
       dockerhub_image: kalbasit/ncps
       dockerhub_username: ${{ vars.DOCKERHUB_USERNAME }}
+      test_systems: '["x86_64-linux"]'
+      check_mode: matrix
+      coverage: true
       languages: |
         {"go":{"targets":[
           {"attr":"ncps",                                         "file":"nix/packages/ncps/default.nix"},

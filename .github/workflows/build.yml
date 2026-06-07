@@ -1,8 +1,9 @@
 name: Build (OCI)
 
-# Reusable workflow that runs `nix flake check`, builds + uploads coverage to Codecov,
+# Reusable workflow that (in `single` check_mode) runs `nix flake check` inline,
 # builds an OCI image, optionally pushes it to Docker Hub and/or ghcr.io, and assembles
-# a multi-arch manifest. Called by ci.yml when `oci: true`. Source repos: ncps/build.yml
+# a multi-arch manifest. Called by ci.yml when `oci: true`. Coverage is owned by ci.yml's
+# coverage job, not this workflow. Source repos: ncps/build.yml
 # and signal-api-receiver/build.yml (parameterized and reconciled per the SWM-precedence
 # rule).
 #
@@ -20,30 +21,31 @@ on:
         type: string
       test_systems:
         description: |
-          Subset of `systems` (JSON array) on which to run the integration suite
-          (`nix flake check`) and coverage. The empty array (default) — or an empty
-          string — runs them on every system. A non-empty list restricts the
-          test/coverage steps to the listed systems; the OCI image is still built
-          for every system so the multi-arch manifest stays complete.
+          Subset of `systems` (JSON array) on which to run the inline integration
+          suite (`nix flake check`) in `single` check_mode. The empty array
+          (default) — or an empty string — runs it on every system. A non-empty list
+          restricts the inline check to the listed systems; the OCI image is still
+          built for every system so the multi-arch manifest stays complete.
           Example: ["x86_64-linux"].
         required: false
         type: string
         default: "[]"
-      run_flake_check:
+      check_mode:
         description: |
-          Whether this workflow runs `nix flake check` + coverage inline. Default
-          true. Set false when the consumer fans the checks out into its own
-          parallel matrix (`nix build .#checks.<system>.<name>`) and runs coverage
-          itself; the OCI image build/push then proceeds without an inline check.
+          How `nix flake check` runs, forwarded by ci.yml. `single` (default) runs
+          one monolithic `nix flake check -L` inline per system (scoped by
+          `test_systems`). `matrix` and `none` skip the inline check — in `matrix`
+          mode the checks fan out in ci.yml instead. The OCI image build/push is
+          unaffected. Coverage is owned by ci.yml's coverage job, not this workflow.
         required: false
-        type: boolean
-        default: true
+        type: string
+        default: single
       cachix_cache:
         description: "Cachix cache name"
         required: true
         type: string
       primary_package:
-        description: "Primary Nix package attr (used for .#<pkg>.coverage and nix/packages/<pkg>/version.txt)"
+        description: "Primary Nix package attr (used for nix/packages/<pkg>/version.txt)"
         required: true
         type: string
       dockerhub_image:
@@ -76,9 +78,6 @@ on:
     secrets:
       cachix_auth_token:
         description: "Cachix push token"
-        required: true
-      codecov_token:
-        description: "Codecov token (skipped on fork PRs)"
         required: true
       dockerhub_token:
         description: "Docker Hub registry credential. Required only when Docker Hub is enabled."
@@ -155,29 +154,16 @@ jobs:
             echo "$REF_NAME" > "nix/packages/${PRIMARY_PACKAGE}/version.txt"
           fi
 
-      # Integration suite + coverage run only when `run_flake_check` is true AND
-      # the system is named in `test_systems` (empty array => every system). The
-      # OCI image build below is intentionally NOT gated: every arch still builds
-      # its image so the multi-arch manifest stays complete. A consumer that fans
-      # the checks out into its own matrix sets `run_flake_check: false`.
+      # The inline integration suite runs only in `single` check_mode AND when the
+      # system is named in `test_systems` (empty array => every system). `matrix`
+      # and `none` modes skip it — in `matrix` mode the checks fan out in ci.yml.
+      # The OCI image build below is intentionally NOT gated: every arch still
+      # builds its image so the multi-arch manifest stays complete. Coverage now
+      # lives in ci.yml's coverage job, not here.
       - name: Flake check
         id: flake-check
-        if: inputs.run_flake_check && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
+        if: inputs.check_mode == 'single' && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
         run: nix flake check -L
-
-      - name: Build coverage
-        id: build-coverage
-        if: inputs.run_flake_check && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
-        env:
-          PRIMARY_PACKAGE: ${{ inputs.primary_package }}
-        run: nix build ".#${PRIMARY_PACKAGE}.coverage" -L
-
-      - name: Upload coverage reports to Codecov
-        if: inputs.run_flake_check && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && (inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system))
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
-        with:
-          token: ${{ secrets.codecov_token }}
-          files: result-coverage
 
       - name: Build the OCI image
         shell: bash

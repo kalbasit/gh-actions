@@ -46,15 +46,29 @@ on:
         required: false
         type: string
         default: "[]"
-      run_flake_check:
+      check_mode:
         description: |
-          Whether CI runs `nix flake check` + coverage inline (default true). Set
-          false when the consumer fans the checks out into its own parallel matrix
-          and runs coverage itself; gates both the standalone flake-check job and
-          the inline check inside the OCI build job.
+          How `nix flake check` runs. One of:
+            - single (default): one monolithic `nix flake check -L` per system —
+              the standalone flake-check job when oci:false, or the inline check
+              inside build.yml when oci:true. Good for quick repos.
+            - matrix: enumerate `.#checks.<system>` and fan each check out into its
+              own parallel job (system × check, scoped by test_systems). Good for
+              large projects.
+            - none: skip inline checks entirely. OCI image build/push unaffected.
+          Any other value fails the workflow up-front.
+        required: false
+        type: string
+        default: single
+      coverage:
+        description: |
+          When true, run a fork-safe coverage job that builds
+          `.#<primary_package>.coverage` and uploads it to Codecov. Requires
+          `primary_package` and the `codecov_token` secret. Skipped on fork PRs.
+          Default false.
         required: false
         type: boolean
-        default: true
+        default: false
       primary_package:
         description: "Primary Nix package attr (required when oci: true). Used for coverage and version.txt."
         required: false
@@ -176,8 +190,26 @@ jobs:
       cachix_auth_token: ${{ secrets.cachix_auth_token }}
       gha_pat_token: ${{ secrets.gha_pat_token }}
 
+  check-mode-guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate check_mode
+        env:
+          CHECK_MODE: ${{ inputs.check_mode }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          case "$CHECK_MODE" in
+            single | matrix | none) ;;
+            *)
+              echo "::error::check_mode must be one of single, matrix, none (got: $CHECK_MODE)"
+              exit 1
+              ;;
+          esac
+
   flake-check:
-    if: ${{ inputs.oci == false && inputs.run_flake_check }}
+    needs: check-mode-guard
+    if: ${{ inputs.oci == false && inputs.check_mode == 'single' }}
     strategy:
       matrix:
         system: ${{ fromJson(inputs.systems) }}
@@ -196,13 +228,114 @@ jobs:
         if: inputs.test_systems == '' || inputs.test_systems == '[]' || contains(fromJson(inputs.test_systems), matrix.system)
         run: nix flake check -L
 
+  # ---- Matrix mode: fan each flake check out into its own parallel job -------------
+  # `check-matrix` enumerates `.#checks.<system>` for every effective system
+  # (test_systems when non-empty, else all systems) and emits a single matrix
+  # `include` list of {system, check} objects. `checks` then builds each check on its
+  # own runner. Lives here (not in build.yml) so it works for oci:false too; when
+  # oci:true the OCI image still builds per-arch in build.yml alongside this fan-out.
+  check-matrix:
+    needs: check-mode-guard
+    if: ${{ inputs.check_mode == 'matrix' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      include: ${{ steps.enumerate.outputs.include }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ${{ inputs.cachix_cache }}
+          authToken: ${{ secrets.cachix_auth_token }}
+      - name: Enumerate checks
+        id: enumerate
+        env:
+          SYSTEMS_JSON: ${{ inputs.systems }}
+          TEST_SYSTEMS_JSON: ${{ inputs.test_systems }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          # Effective systems: test_systems when non-empty, otherwise every system.
+          effective="$TEST_SYSTEMS_JSON"
+          if [[ -z "$effective" || "$effective" == "[]" ]]; then
+            effective="$SYSTEMS_JSON"
+          fi
+
+          include='[]'
+          while IFS= read -r system; do
+            checks="$(nix eval ".#checks.${system}" --apply builtins.attrNames --json)"
+            include="$(jq -c --arg sys "$system" --argjson checks "$checks" \
+              '. + [ $checks[] | { system: $sys, check: . } ]' <<<"$include")"
+          done < <(jq -r '.[]' <<<"$effective")
+
+          echo "include=$include" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: check-matrix
+    if: ${{ inputs.check_mode == 'matrix' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # `|| '[]'` keeps the strategy valid when check-matrix is skipped or the
+        # flake exposes no checks: an empty include list expands to zero jobs.
+        include: ${{ fromJson(needs.check-matrix.outputs.include || '[]') }}
+    runs-on: ${{ matrix.system == 'aarch64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ${{ inputs.cachix_cache }}
+          authToken: ${{ secrets.cachix_auth_token }}
+      - name: Build check
+        # Pass the matrix values via env, not direct `${{ }}` expansion into the
+        # shell: on fork PRs the check names come from `builtins.attrNames` over the
+        # attacker-controlled flake, so interpolating them into `run:` would be a
+        # template-injection vector. Quoted env references treat them as data.
+        env:
+          SYSTEM: ${{ matrix.system }}
+          CHECK: ${{ matrix.check }}
+        run: nix build ".#checks.$SYSTEM.$CHECK" -L
+
+  # ---- Coverage (opt-in, independent of check_mode) --------------------------------
+  # Builds `.#<primary_package>.coverage` once on the primary system (first of
+  # test_systems, else x86_64-linux) and uploads to Codecov. Fork-safe: skipped on
+  # fork PRs since the codecov token is withheld there.
+  coverage:
+    if: ${{ inputs.coverage && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    runs-on: ${{ (inputs.test_systems != '' && inputs.test_systems != '[]' && fromJson(inputs.test_systems)[0] == 'aarch64-linux') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: ${{ inputs.cachix_cache }}
+          authToken: ${{ secrets.cachix_auth_token }}
+      - name: Build coverage
+        env:
+          PRIMARY_PACKAGE: ${{ inputs.primary_package }}
+        run: nix build ".#${PRIMARY_PACKAGE}.coverage" -L
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
+        with:
+          token: ${{ secrets.codecov_token }}
+          files: result-coverage
+
   build:
+    needs: check-mode-guard
     if: ${{ inputs.oci }}
     uses: ./.github/workflows/build.yml
     with:
       systems: ${{ inputs.systems }}
       test_systems: ${{ inputs.test_systems }}
-      run_flake_check: ${{ inputs.run_flake_check }}
+      check_mode: ${{ inputs.check_mode }}
       cachix_cache: ${{ inputs.cachix_cache }}
       primary_package: ${{ inputs.primary_package }}
       dockerhub_image: ${{ inputs.dockerhub_image }}
@@ -213,7 +346,6 @@ jobs:
       push_oci: ${{ inputs.push_oci && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     secrets:
       cachix_auth_token: ${{ secrets.cachix_auth_token }}
-      codecov_token: ${{ secrets.codecov_token }}
       dockerhub_token: ${{ secrets.dockerhub_token }}
 
   openspec-guard:
@@ -227,7 +359,11 @@ jobs:
     needs:
       - filter
       - generate
+      - check-mode-guard
       - flake-check
+      - check-matrix
+      - checks
+      - coverage
       - build
       - openspec-guard
     steps:
@@ -235,7 +371,11 @@ jobs:
         env:
           FILTER_RESULT: ${{ needs.filter.result }}
           GENERATE_RESULT: ${{ needs.generate.result }}
+          CHECK_MODE_GUARD_RESULT: ${{ needs.check-mode-guard.result }}
           FLAKE_CHECK_RESULT: ${{ needs.flake-check.result }}
+          CHECK_MATRIX_RESULT: ${{ needs.check-matrix.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           OPENSPEC_GUARD_RESULT: ${{ needs.openspec-guard.result }}
         run: |
@@ -245,7 +385,11 @@ jobs:
           declare -A results=(
             ["filter"]="$FILTER_RESULT"
             ["generate"]="$GENERATE_RESULT"
+            ["check-mode-guard"]="$CHECK_MODE_GUARD_RESULT"
             ["flake-check"]="$FLAKE_CHECK_RESULT"
+            ["check-matrix"]="$CHECK_MATRIX_RESULT"
+            ["checks"]="$CHECKS_RESULT"
+            ["coverage"]="$COVERAGE_RESULT"
             ["build"]="$BUILD_RESULT"
             ["openspec-guard"]="$OPENSPEC_GUARD_RESULT"
           )
