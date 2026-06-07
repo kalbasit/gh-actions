@@ -118,13 +118,17 @@ jobs:
           dh_image_set=false; [[ -n "$DH_IMAGE" ]] && dh_image_set=true
           dh_user_set=false;  [[ -n "$DH_USER"  ]] && dh_user_set=true
 
-          if [[ "$dh_image_set" != "$dh_user_set" ]]; then
-            echo "::error::dockerhub_image and dockerhub_username must be set together (got image=$dh_image_set user=$dh_user_set)"
-            exit 1
-          fi
-
-          # Only require at least one registry when we'd actually push.
+          # Registry inputs only matter when we'd actually push. On fork PRs the
+          # caller forces push_oci=false and `dockerhub_username` is stripped (the
+          # variable is withheld from forks) while `dockerhub_image` stays a
+          # literal, yielding an asymmetric pair that is harmless because no
+          # login/push/manifest step runs. Only enforce the pairing (and the
+          # at-least-one-registry rule) when pushing.
           if [[ "$OCI_PUSH" == "true" ]]; then
+            if [[ "$dh_image_set" != "$dh_user_set" ]]; then
+              echo "::error::dockerhub_image and dockerhub_username must be set together (got image=$dh_image_set user=$dh_user_set)"
+              exit 1
+            fi
             if [[ "$dh_image_set" != "true" && "$GHCR_ENABLED" != "true" ]]; then
               echo "::error::push_oci is true but no OCI registry is enabled (set dockerhub_image+dockerhub_username and/or ghcr_enabled)"
               exit 1

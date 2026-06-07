@@ -1,8 +1,5 @@
-# oci-build Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change shared-workflows. Update Purpose after archive.
-## Requirements
 ### Requirement: Reusable OCI build workflow
 
 The repository SHALL provide a reusable workflow at `.github/workflows/build.yml` that, for
@@ -65,61 +62,3 @@ runs in that case.
 - **WHEN** the orchestrator's `oci` input is false
 - **THEN** the orchestrator SHALL NOT invoke `build.yml`; standalone `flake-check` runs in
   its place
-
-### Requirement: Per-arch runner selection
-
-The matrix SHALL select runner labels by system: `ubuntu-24.04-arm` for `aarch64-linux`,
-`ubuntu-24.04` for all other systems.
-
-#### Scenario: Matrix expansion
-
-- **WHEN** `systems` is `["x86_64-linux","aarch64-linux"]`
-- **THEN** the x86_64 job SHALL run on `ubuntu-24.04` and the aarch64 job on
-  `ubuntu-24.04-arm`
-
-### Requirement: Image tag generation
-
-The workflow SHALL use `docker/metadata-action@v6` to generate per-arch tags using the
-following rules (carried over from current ncps/signal-api-receiver build.yml):
-
-- `type=ref,event=branch`
-- `type=ref,event=pr`
-- `type=semver,pattern={{raw}}`
-- `type=semver,pattern=v{{version}}`
-- `type=semver,pattern=v{{major}}.{{minor}}`
-- `type=semver,pattern=v{{major}}`
-- `type=sha`
-
-Image bases SHALL be `${{ inputs.images }}` and `ghcr.io/${{ github.repository }}`.
-
-#### Scenario: Tag pushed on a `v1.2.3` git tag
-
-- **WHEN** the workflow runs on a push of git tag `v1.2.3`
-- **THEN** tags including `v1.2.3`, `v1`, `v1.2`, and a `sha-<short>` tag SHALL be produced
-  for each registry base
-
-### Requirement: Multi-arch manifest
-
-The follow-up `oci-manifest` job SHALL, for each tag emitted by the per-arch metadata step,
-create a Docker manifest list combining the per-arch images (`<tag>-<system>`) and push it.
-
-#### Scenario: Manifest creation
-
-- **WHEN** two per-arch images exist for tag `kalbasit/foo:v1.2.3`
-- **THEN** the job SHALL run `docker manifest create kalbasit/foo:v1.2.3
-  kalbasit/foo:v1.2.3-x86_64-linux kalbasit/foo:v1.2.3-aarch64-linux` and then `docker
-  manifest push kalbasit/foo:v1.2.3`
-
-### Requirement: Version file injection
-
-Before flake-check, the workflow SHALL check whether `github.ref_name` matches the semver
-pattern `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`; if it matches, the
-workflow MUST write that ref name into `nix/packages/<primary-package>/version.txt` so the
-Nix build embeds the correct version.
-
-#### Scenario: Branch build
-
-- **WHEN** the build runs on a branch (not a semver tag)
-- **THEN** the workflow SHALL NOT write `version.txt`; the default version baked into
-  `default.nix` SHALL be used
-
