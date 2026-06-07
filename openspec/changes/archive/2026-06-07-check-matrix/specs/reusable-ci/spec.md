@@ -1,8 +1,4 @@
-# reusable-ci Specification
-
-## Purpose
-TBD - created by archiving change shared-workflows. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Reusable CI orchestrator workflow
 
@@ -48,24 +44,6 @@ itself rather than inside `build.yml`.
   fan-out in `matrix` mode)
 - **AND** when `oci: true`, the `aarch64-linux` leg SHALL still build its OCI image
 
-### Requirement: test_systems input
-
-The `ci.yml` workflow SHALL accept a `test_systems` input: a JSON-array string, not required,
-defaulting to `"[]"`. It names the subset of `systems` on which `nix flake check` and coverage
-run; an empty array — or an empty string — MUST be treated as "all systems". The workflow
-SHALL forward this value unchanged to `build.yml`.
-
-#### Scenario: Default omitted
-
-- **WHEN** a consumer omits `test_systems`
-- **THEN** the workflow SHALL default it to `"[]"` and run flake-check + coverage on every
-  system in `systems`
-
-#### Scenario: Forwarded to build.yml
-
-- **WHEN** `oci: true` and a consumer sets `test_systems: '["x86_64-linux"]'`
-- **THEN** the orchestrator SHALL pass `test_systems: '["x86_64-linux"]'` to `build.yml`
-
 ### Requirement: Inputs
 
 The `ci.yml` workflow SHALL accept the following inputs:
@@ -97,6 +75,8 @@ The `ci.yml` workflow SHALL accept the following inputs:
 - **WHEN** a consumer omits `systems`, `oci`, `check_mode`, and `coverage`
 - **THEN** the workflow SHALL default `systems` to `["x86_64-linux","aarch64-linux"]`, `oci`
   to `false`, `check_mode` to `single`, and `coverage` to `false`
+
+## ADDED Requirements
 
 ### Requirement: check_mode input
 
@@ -172,8 +152,8 @@ injection from fork PRs. This matrix fan-out SHALL run in `ci.yml` for both `oci
 ### Requirement: Coverage upload
 
 When `coverage` is `true`, the `ci.yml` workflow SHALL run a single `coverage` job that builds
-`.#<primary_package>.coverage` on the primary system (the first of `test_systems`, else the
-first of `systems`) and uploads the resulting `result-coverage` to Codecov via `codecov-action`.
+`.#<primary_package>.coverage` on the primary system (the first of `test_systems`, else
+`x86_64-linux`) and uploads the resulting `result-coverage` to Codecov via `codecov-action`.
 The job SHALL require `primary_package` and the `codecov_token` secret, and SHALL be skipped on
 fork PRs or when `codecov_token` is absent. When `coverage` is `false` (the default), no
 coverage job SHALL run and `build.yml` SHALL NOT build or upload coverage.
@@ -197,42 +177,16 @@ coverage job SHALL run and `build.yml` SHALL NOT build or upload coverage.
 - **THEN** the `coverage` job SHALL be skipped and the final `ci` gate SHALL treat the skip as
   success
 
-### Requirement: Final CI gate
+## REMOVED Requirements
 
-The workflow SHALL include a terminal `ci` job that depends on all preceding jobs,
-runs with `if: always()`, and SHALL enumerate each upstream `needs.<job>.result`
-individually rather than iterating `toJSON(needs)`.
+### Requirement: run_flake_check input
 
-#### Scenario: All upstream jobs succeed or skip
+**Reason**: Replaced by the `check_mode` enum, which expresses the same skip behavior
+(`check_mode: none`) alongside the new `single` and `matrix` modes; the standalone boolean
+could not represent the matrix option.
 
-- **WHEN** every `needs.<job>.result` is `success` or `skipped`
-- **THEN** the `ci` job SHALL exit 0 with message "All jobs passed"
-
-#### Scenario: An upstream job fails
-
-- **WHEN** any `needs.<job>.result` is `failure` or `cancelled`
-- **THEN** the `ci` job SHALL emit `::error::Job failed with result: <result>` naming the
-  specific failing job and exit non-zero
-
-### Requirement: Fork safety
-
-Jobs requiring write tokens (`generate`, OCI registry push, codecov upload) SHALL be skipped
-when `github.event.pull_request.head.repo.fork == true`, and the final gate SHALL treat
-those `skipped` results as success.
-
-#### Scenario: Pull request from a fork
-
-- **WHEN** a pull request opens from a forked repository
-- **THEN** `generate` SHALL be skipped, OCI push steps SHALL be skipped, codecov upload SHALL
-  be skipped
-- **AND** the `ci` gate SHALL still exit 0 if remaining jobs succeed
-
-### Requirement: Trigger contract
-
-The workflow SHALL be invoked via `workflow_call` only; consumers wire their own
-`pull_request` / `push` / `workflow_dispatch` triggers in their thin caller.
-
-#### Scenario: Direct trigger attempt
-
-- **WHEN** something tries to invoke `ci.yml` outside `workflow_call`
-- **THEN** GitHub Actions SHALL reject the invocation (no other trigger declared)
+**Migration**: Consumers that set `run_flake_check: true` SHALL use `check_mode: single` (the
+default, so the input may simply be dropped); consumers that set `run_flake_check: false` to
+fan checks out themselves SHALL use `check_mode: matrix` (to fan out via the reusable workflow)
+or `check_mode: none` (to skip inline checks). Inline coverage previously implied by
+`run_flake_check: true` SHALL be requested explicitly via `coverage: true`.
