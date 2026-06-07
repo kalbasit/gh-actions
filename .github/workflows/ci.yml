@@ -266,7 +266,9 @@ jobs:
 
           include='[]'
           while IFS= read -r system; do
-            checks="$(nix eval ".#checks.${system}" --apply builtins.attrNames --json)"
+            # A flake without a `checks.<system>` attribute yields an empty list
+            # (matrix mode is then a no-op for that system) rather than erroring.
+            checks="$(nix eval ".#checks.${system}" --apply builtins.attrNames --json 2>/dev/null || echo '[]')"
             include="$(jq -c --arg sys "$system" --argjson checks "$checks" \
               '. + [ $checks[] | { system: $sys, check: . } ]' <<<"$include")"
           done < <(jq -r '.[]' <<<"$effective")
@@ -304,11 +306,13 @@ jobs:
 
   # ---- Coverage (opt-in, independent of check_mode) --------------------------------
   # Builds `.#<primary_package>.coverage` once on the primary system (first of
-  # test_systems, else x86_64-linux) and uploads to Codecov. Fork-safe: skipped on
-  # fork PRs since the codecov token is withheld there.
+  # test_systems, else first of systems) and uploads to Codecov. Fork-safe: skipped
+  # on fork PRs since the codecov token is withheld there.
   coverage:
     if: ${{ inputs.coverage && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
-    runs-on: ${{ (inputs.test_systems != '' && inputs.test_systems != '[]' && fromJson(inputs.test_systems)[0] == 'aarch64-linux') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    # Primary system = first of test_systems when set, else first of systems; the
+    # `&&` short-circuit keeps fromJson off an empty test_systems string.
+    runs-on: ${{ ((inputs.test_systems != '' && inputs.test_systems != '[]') && fromJson(inputs.test_systems)[0] || fromJson(inputs.systems)[0]) == 'aarch64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:

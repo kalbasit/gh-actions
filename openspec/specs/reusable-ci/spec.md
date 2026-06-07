@@ -172,8 +172,8 @@ injection from fork PRs. This matrix fan-out SHALL run in `ci.yml` for both `oci
 ### Requirement: Coverage upload
 
 When `coverage` is `true`, the `ci.yml` workflow SHALL run a single `coverage` job that builds
-`.#<primary_package>.coverage` on the primary system (the first of `test_systems`, else
-`x86_64-linux`) and uploads the resulting `result-coverage` to Codecov via `codecov-action`.
+`.#<primary_package>.coverage` on the primary system (the first of `test_systems`, else the
+first of `systems`) and uploads the resulting `result-coverage` to Codecov via `codecov-action`.
 The job SHALL require `primary_package` and the `codecov_token` secret, and SHALL be skipped on
 fork PRs or when `codecov_token` is absent. When `coverage` is `false` (the default), no
 coverage job SHALL run and `build.yml` SHALL NOT build or upload coverage.
