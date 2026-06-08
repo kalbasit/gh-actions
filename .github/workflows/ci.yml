@@ -308,8 +308,27 @@ jobs:
   # Builds `.#<primary_package>.coverage` once on the primary system (first of
   # test_systems, else first of systems) and uploads to Codecov. Fork-safe: skipped
   # on fork PRs since the codecov token is withheld there.
+  #
+  # `needs` the cache-populating jobs so coverage runs AFTER them: a consumer's
+  # `.#<pkg>.coverage` typically depends on the same test/cohort derivations those
+  # jobs build and push to Cachix, so running concurrently would force coverage to
+  # rebuild the whole instrumented suite from scratch (observed: ncps coverage went
+  # 33s -> 6m20s when this job lost that ordering). `flake-check`/`check-matrix`/
+  # `checks`/`build` are each skipped for some check_mode/oci combination, and a
+  # skipped `needs` job would cascade-skip coverage by default — so the gate uses
+  # `!cancelled()` (runs when deps are skipped or succeeded) while still honouring
+  # the `inputs.coverage` toggle and the fork-PR skip.
   coverage:
-    if: ${{ inputs.coverage && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
+    needs:
+      - check-mode-guard
+      - flake-check
+      - check-matrix
+      - checks
+      - build
+    if: >-
+      ${{ !cancelled()
+        && inputs.coverage
+        && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) }}
     # Primary system = first of test_systems when set, else first of systems; the
     # `&&` short-circuit keeps fromJson off an empty test_systems string.
     runs-on: ${{ ((inputs.test_systems != '' && inputs.test_systems != '[]') && fromJson(inputs.test_systems)[0] || fromJson(inputs.systems)[0]) == 'aarch64-linux' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
