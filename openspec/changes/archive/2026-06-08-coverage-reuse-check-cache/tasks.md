@@ -15,4 +15,4 @@
 - [x] 3.1 Run `openspec validate --specs --no-interactive` and the repo's openspec-guard expectations; ensure the change validates. (change valid; specs 5/5 pass)
 - [x] 3.2 Commit on a feature branch with a Conventional Commit message (e.g. `fix(ci): run coverage after check jobs to reuse cachix cache`).
 - [ ] 3.3 After merge to `@main`, validate on the `ncps` consumer that the next `coverage` job hits Cachix and returns to ~30s instead of rebuilding the suite.
-- [ ] 3.4 Archive this change once implemented (openspec-guard requires no active change at merge).
+- [x] 3.4 Archive this change once implemented (openspec-guard requires no active change at merge).
