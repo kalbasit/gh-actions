@@ -64,7 +64,7 @@ jobs:
       # supplied via `token:` is embedded into the git remote URL so the
       # `stefanzweifel/git-auto-commit-action` step at the bottom of this job can push
       # back. Setting `persist-credentials: false` here would break the auto-commit.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           token: ${{ secrets.gha_pat_token }}
           ref: ${{ github.event.pull_request.head.ref || github.ref }}
