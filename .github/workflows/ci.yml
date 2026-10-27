@@ -129,7 +129,7 @@ permissions:
 
 jobs:
   filter:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       go_deps: ${{ steps.filter.outputs.go_deps }}
       any_deps: ${{ steps.any.outputs.any_deps }}
@@ -191,7 +191,7 @@ jobs:
       gha_pat_token: ${{ secrets.gha_pat_token }}
 
   check-mode-guard:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Validate check_mode
         env:
@@ -237,7 +237,7 @@ jobs:
   check-matrix:
     needs: check-mode-guard
     if: ${{ inputs.check_mode == 'matrix' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       include: ${{ steps.enumerate.outputs.include }}
     steps:
@@ -377,7 +377,7 @@ jobs:
       path: ${{ inputs.openspec_path }}
 
   ci:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     if: always()
     needs:
       - filter
