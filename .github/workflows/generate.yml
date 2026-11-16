@@ -58,7 +58,7 @@ jobs:
   generate:
     # Skip on fork PRs: we have no PAT to push back to the fork's branch.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       # NOTE: persist-credentials is intentionally left at its default (true). The PAT
       # supplied via `token:` is embedded into the git remote URL so the
